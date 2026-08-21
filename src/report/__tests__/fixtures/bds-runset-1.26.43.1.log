@@ -1,0 +1,99 @@
+NO LOG FILE! - setting up server logging...
+[2026-08-10 21:09:39:643 INFO] Starting Server
+[2026-08-10 21:09:39:643 INFO] Version: 1.26.43.1
+[2026-08-10 21:09:39:643 INFO] Session ID: c03d64a8-095e-4270-8dae-79fcf7442642
+[2026-08-10 21:09:39:643 INFO] Build ID: 49104929
+[2026-08-10 21:09:39:643 INFO] Branch: r/26_u4
+[2026-08-10 21:09:39:643 INFO] Commit ID: 85f9f8204d8a04f4e27d119f83ce61cea4774c1f
+[2026-08-10 21:09:39:643 INFO] Configuration: Publish
+[2026-08-10 21:09:39:644 INFO] Contents of server.properties: {}
+[2026-08-10 21:09:39:644 INFO] Level Name: bc-test
+[2026-08-10 21:09:39:644 INFO] Profiler config ('bootstrap.json') load result: success=1, errorMessage=(null)
+[2026-08-10 21:09:39:646 INFO] No CDN config file found at: cdn_config.json for dedicated server
+[2026-08-10 21:09:39:646 INFO] Game mode: 1 Creative
+[2026-08-10 21:09:39:646 INFO] Difficulty: 0 PEACEFUL
+[2026-08-10 21:09:39:646 INFO] Content logging to console is enabled.
+[2026-08-10 21:09:39:648 INFO] 
+
+#####################################################
+#                                                   #
+#               LOADING VANILLA WORLD               #
+#                                                   #
+#####################################################
+[2026-08-10 21:09:40:264 INFO] Content logging to disk is enabled. Writing log to: ContentLog2026-08-10_21-09-40
+[2026-08-10 21:09:40:265 INFO] Experiment(s) active: gtst
+[2026-08-10 21:09:40:265 INFO] Opening level 'worlds/bc-test/db'
+[2026-08-10 21:09:40:417 INFO] Pack Stack - [00] @bedrock-core/constructs (id: 8f2f4e21-6a3d-4c58-b0aa-51e9d3a7c402, version: 0.1.0) @ worlds/bc-test/behavior_packs/bc-constructs_bp
+[2026-08-10 21:09:40:490 WARN] [Scripting] [constructs] addon loaded (M7 — /construct:weld a machine, grab it with the physics gun)
+
+
+[2026-08-10 21:09:41:376 INFO] IPv4 supported, port: 19140: Used for gameplay
+[2026-08-10 21:09:41:377 INFO] IPv6 supported, port: 19141: Used for gameplay
+[2026-08-10 21:09:41:409 INFO] Signed in to signaling service successfully
+[2026-08-10 21:09:41:425 INFO] Server started.
+[2026-08-10 21:09:41:425 INFO] ================ TELEMETRY MESSAGE ===================
+[2026-08-10 21:09:41:425 INFO] Server Telemetry is currently not enabled. 
+[2026-08-10 21:09:41:425 INFO] Enabling this telemetry helps us improve the game.
+[2026-08-10 21:09:41:425 INFO] 
+[2026-08-10 21:09:41:425 INFO] To enable this feature, add the line 'emit-server-telemetry=true'
+[2026-08-10 21:09:41:425 INFO] to the server.properties file in the handheld/src-server directory
+[2026-08-10 21:09:41:425 INFO] ======================================================
+[2026-08-10 21:09:41:433 WARN] [Scripting] Custom Command alias [clear] already in use. Required to use full name [construct:clear].
+
+
+### SEND: gamerule sendcommandfeedback true
+[2026-08-10 21:09:43:790 INFO] Game rule sendcommandfeedback has been updated to true
+### SEND: tickingarea add 0 -64 0 64 100 64 bc_test true
+[2026-08-10 21:09:48:693 INFO] Added ticking area from 0, 0, 0 to 79, 0, 79 marked for preload.
+1/10 ticking areas in use.
+### SEND: execute in overworld positioned 8 -60 8 run gametest runset bc:constructs:m3
+Running test batch 'bc:constructs:m3:0' (16 tests)...
+[2026-08-10 21:09:53:726 INFO] Running 16 tests with tag 'bc:constructs:m3'...
+onTestStructureLoaded: bc:constructs:m3:weld_splits_hinged_machine_and_arm_swings
+onTestStructureLoaded: bc:constructs:m3:redstone_block_powers_thruster_upward
+onTestStructureLoaded: bc:constructs:m3:lever_on_live_construct_toggles_thruster
+onTestStructureLoaded: bc:constructs:m3:button_press_pulses_and_self_releases
+onTestStructureLoaded: bc:constructs:m3:pickcell_resolves_the_aimed_construct_cell
+onTestStructureLoaded: bc:constructs:m3:settle_unweld_stamps_at_the_current_position
+onTestStructureLoaded: bc:constructs:m3:unweld_aborts_when_the_landing_spot_is_blocked
+onTestStructureLoaded: bc:constructs:m3:anchor_block_locks_body_on_signal
+onTestStructureLoaded: bc:constructs:m3:world_thruster_exhaust_pushes_a_physics_cube
+onTestStructureLoaded: bc:constructs:m3:welded_rotor_couples_to_a_real_world_bearing
+onTestStructureLoaded: bc:constructs:m3:powered_bearing_drives_the_welded_rotor
+onTestStructureLoaded: bc:constructs:m3:empty_hand_bearing_weld_shortcut_couples_the_selection
+onTestStructureLoaded: bc:constructs:m3:grab_tether_follows_the_target_and_throws
+onTestStructureLoaded: bc:constructs:m3:freeze_and_adopt_restore_the_machine
+onTestStructureLoaded: bc:constructs:m3:creative_engine_spins_a_coupled_rotor
+onTestStructureLoaded: bc:constructs:m3:unweld_restores_blocks_at_origin
+onTestPassed: bc:constructs:m3:pickcell_resolves_the_aimed_construct_cell
+onTestPassed: bc:constructs:m3:empty_hand_bearing_weld_shortcut_couples_the_selection
+onTestPassed: bc:constructs:m3:unweld_aborts_when_the_landing_spot_is_blocked
+onTestPassed: bc:constructs:m3:unweld_restores_blocks_at_origin
+onTestPassed: bc:constructs:m3:settle_unweld_stamps_at_the_current_position
+onTestPassed: bc:constructs:m3:redstone_block_powers_thruster_upward
+[2026-08-10 21:09:55:199 WARN] [Scripting] [constructs:m8] world-thruster plume: peak rise 7.05 m, peak v.y 13.26 m/s, final v.y -1.83 (tracked=1)
+
+
+onTestPassed: bc:constructs:m3:world_thruster_exhaust_pushes_a_physics_cube
+onTestPassed: bc:constructs:m3:freeze_and_adopt_restore_the_machine
+[2026-08-10 21:09:55:553 WARN] [Scripting] [constructs:render] creative engine spun the rotor 267.2° (no redstone)
+
+
+onTestPassed: bc:constructs:m3:creative_engine_spins_a_coupled_rotor
+onTestPassed: bc:constructs:m3:anchor_block_locks_body_on_signal
+onTestFailed: bc:constructs:m3:lever_on_live_construct_toggles_thruster - GameTestError: powered thruster must lift the construct (v.y=-3.53)
+onTestPassed: bc:constructs:m3:grab_tether_follows_the_target_and_throws
+onTestPassed: bc:constructs:m3:weld_splits_hinged_machine_and_arm_swings
+onTestPassed: bc:constructs:m3:button_press_pulses_and_self_releases
+[2026-08-10 21:09:56:204 WARN] [Scripting] [constructs:m8s2] rotor locked on unpowered bearing: dropped 0.00 m, drift 0.00 m, swept 10.7° (brake resists)
+
+
+onTestPassed: bc:constructs:m3:welded_rotor_couples_to_a_real_world_bearing
+[2026-08-10 21:09:56:497 WARN] [Scripting] [constructs:m8s2] powered driven bearing: locked drift 0.000, driven swept 178.2°
+
+
+onTestPassed: bc:constructs:m3:powered_bearing_drives_the_welded_rotor
+### SEND: stop
+[2026-08-10 21:10:41:762 INFO] Server stop requested.
+[2026-08-10 21:10:41:827 INFO] Stopping server...
+Quit correctly

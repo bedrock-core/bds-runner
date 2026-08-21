@@ -1,0 +1,57 @@
+NO LOG FILE! - setting up server logging...
+[2026-08-10 21:08:27:676 INFO] Starting Server
+[2026-08-10 21:08:27:677 INFO] Version: 1.26.43.1
+[2026-08-10 21:08:27:677 INFO] Session ID: bfa657c1-96ab-4dd1-bbfd-f2a315b39432
+[2026-08-10 21:08:27:677 INFO] Build ID: 49104929
+[2026-08-10 21:08:27:677 INFO] Branch: r/26_u4
+[2026-08-10 21:08:27:677 INFO] Commit ID: 85f9f8204d8a04f4e27d119f83ce61cea4774c1f
+[2026-08-10 21:08:27:677 INFO] Configuration: Publish
+[2026-08-10 21:08:27:677 INFO] Contents of server.properties: {}
+[2026-08-10 21:08:27:677 INFO] Level Name: bc-test
+[2026-08-10 21:08:27:677 INFO] Profiler config ('bootstrap.json') load result: success=1, errorMessage=(null)
+[2026-08-10 21:08:27:679 INFO] No CDN config file found at: cdn_config.json for dedicated server
+[2026-08-10 21:08:27:679 INFO] Game mode: 1 Creative
+[2026-08-10 21:08:27:679 INFO] Difficulty: 0 PEACEFUL
+[2026-08-10 21:08:27:679 INFO] Content logging to console is enabled.
+[2026-08-10 21:08:27:681 INFO] 
+
+#####################################################
+#                                                   #
+#               LOADING VANILLA WORLD               #
+#                                                   #
+#####################################################
+[2026-08-10 21:08:28:181 INFO] Content logging to disk is enabled. Writing log to: ContentLog2026-08-10_21-08-28
+[2026-08-10 21:08:28:183 INFO] Experiment(s) active: gtst
+[2026-08-10 21:08:28:183 INFO] Opening level 'worlds/bc-test/db'
+[2026-08-10 21:08:28:338 INFO] Pack Stack - None
+[2026-08-10 21:08:29:258 INFO] IPv4 supported, port: 19140: Used for gameplay
+[2026-08-10 21:08:29:258 INFO] IPv6 supported, port: 19141: Used for gameplay
+[2026-08-10 21:08:29:285 INFO] Signed in to signaling service successfully
+[2026-08-10 21:08:29:300 INFO] Server started.
+[2026-08-10 21:08:29:301 INFO] ================ TELEMETRY MESSAGE ===================
+[2026-08-10 21:08:29:301 INFO] Server Telemetry is currently not enabled. 
+[2026-08-10 21:08:29:301 INFO] Enabling this telemetry helps us improve the game.
+[2026-08-10 21:08:29:301 INFO] 
+[2026-08-10 21:08:29:301 INFO] To enable this feature, add the line 'emit-server-telemetry=true'
+[2026-08-10 21:08:29:301 INFO] to the server.properties file in the handheld/src-server directory
+[2026-08-10 21:08:29:301 INFO] ======================================================
+### SEND: help gametest
+[2026-08-10 21:08:31:585 INFO] §egametest:
+§eInteracts with gametest.
+Usage:
+- /gametest clearall
+- /gametest create <testName: string> [width: int] [height: int] [depth: int]
+- /gametest pos
+- /gametest run <testName: string> <stopOnFailure: Boolean> <repeatCount: int> [rotationSteps: int]
+- /gametest run <testName: string> [rotationSteps: int]
+- /gametest runset [tag: string] [rotationSteps: int]
+- /gametest runsetuntilfail [tag: string] [rotationSteps: int]
+- /gametest runthese
+- /gametest runthis
+- /gametest stopall
+### SEND: gametest runset bc:nope
+[2026-08-10 21:08:34:505 ERROR] No tests found for tag 'bc:nope'
+### SEND: stop
+[2026-08-10 21:08:40:671 INFO] Server stop requested.
+[2026-08-10 21:08:40:718 INFO] Stopping server...
+Quit correctly

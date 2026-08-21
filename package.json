@@ -1,0 +1,62 @@
+{
+	"name": "@bedrock-core/bds-runner",
+	"version": "0.1.0",
+	"description": "Runs Minecraft GameTests headlessly on a Bedrock Dedicated Server and reports a CI exit code",
+	"keywords": [
+		"minecraft",
+		"bedrock",
+		"bds",
+		"bedrock-dedicated-server",
+		"gametest",
+		"testing",
+		"ci"
+	],
+	"license": "MIT",
+	"author": "DrAv0011",
+	"contributors": [
+		{
+			"name": "DrAv0011",
+			"email": "contact@drav.dev",
+			"url": "https://drav.dev"
+		}
+	],
+	"repository": "github:bedrock-core/server",
+	"private": true,
+	"type": "module",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"import": "./src/index.ts"
+		}
+	},
+	"bin": {
+		"bc-bds": "./bin/bc-bds.mjs"
+	},
+	"sideEffects": false,
+	"files": [
+		"src/**/*",
+		"bin/**/*",
+		"bds-version.json"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json --noEmit",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"coverage": "vitest run --coverage",
+		"lint": "eslint .",
+		"test": "vitest run",
+		"fetch": "node --import jiti/register src/cli.ts fetch",
+		"where": "node --import jiti/register src/cli.ts where"
+	},
+	"dependencies": {
+		"prismarine-nbt": "^2.7.0",
+		"yauzl": "^3.2.0"
+	},
+	"devDependencies": {
+		"@types/node": "^26.2.0",
+		"@types/yauzl": "^2.10.3",
+		"jiti": "^2.7.0",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.10"
+	}
+}

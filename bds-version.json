@@ -1,0 +1,5 @@
+{
+	"version": "1.26.43.1",
+	"channel": "stable",
+	"note": "Pinned to the engine encoded in @minecraft/server-gametest’s beta tag (1.0.0-beta.1.26.43-stable), which also satisfies the addons’ min_engine_version [1, 26, 30]. Download URL, sha1 and size come from github.com/Bedrock-OSS/BDS-Versions; run `bc-bds where` to see whether Mojang has shipped a newer build."
+}
