@@ -1,0 +1,165 @@
+NO LOG FILE! - setting up server logging...
+[2026-09-08 00:58:05:721 INFO] Starting Server
+[2026-09-08 00:58:05:721 INFO] Version: 1.26.43.1
+[2026-09-08 00:58:05:721 INFO] Session ID: 017a84b1-3013-49c5-9584-d7d2eecb8010
+[2026-09-08 00:58:05:721 INFO] Build ID: 49104929
+[2026-09-08 00:58:05:721 INFO] Branch: r/26_u4
+[2026-09-08 00:58:05:721 INFO] Commit ID: 85f9f8204d8a04f4e27d119f83ce61cea4774c1f
+[2026-09-08 00:58:05:721 INFO] Configuration: Publish
+[2026-09-08 00:58:05:721 INFO] Contents of server.properties: {}
+[2026-09-08 00:58:05:721 INFO] Level Name: bc-test
+[2026-09-08 00:58:05:721 INFO] Profiler config ('bootstrap.json') load result: success=1, errorMessage=(null)
+[2026-09-08 00:58:05:723 INFO] No CDN config file found at: cdn_config.json for dedicated server
+[2026-09-08 00:58:05:723 INFO] Game mode: 1 Creative
+[2026-09-08 00:58:05:723 INFO] Difficulty: 0 PEACEFUL
+[2026-09-08 00:58:05:723 INFO] Content logging to console is enabled.
+[2026-09-08 00:58:05:725 INFO] 
+
+#####################################################
+#                                                   #
+#               LOADING VANILLA WORLD               #
+#                                                   #
+#####################################################
+[2026-09-08 00:58:06:241 INFO] Content logging to disk is enabled. Writing log to: ContentLog2026-09-08_00-58-06
+[2026-09-08 00:58:06:243 INFO] Experiment(s) active: gtst
+[2026-09-08 00:58:06:243 INFO] Opening level 'worlds/bc-test/db'
+[2026-09-08 00:58:06:403 INFO] Pack Stack - [00] drav0011_economy.meta.name (id: 53a3007c-d160-46d3-bba1-c05e8bd378d6, version: 1.0.0) @ worlds/bc-test/behavior_packs/test-addon_bp
+[2026-09-08 00:58:06:403 INFO] Pack Stack - [01] drav0011_shop.meta.name (id: 2c9add46-ecbf-4dd7-8c7c-71c244e928da, version: 1.0.0) @ worlds/bc-test/behavior_packs/test-addon-2_bp
+[2026-09-08 00:58:06:610 INFO] [Scripting] [ui] guide reference drav0011_economy: index, 2 page(s)
+
+
+[2026-09-08 00:58:06:891 INFO] [Scripting] [ui] guide reference drav0011_shop: index, 3 page(s)
+
+
+[2026-09-08 00:58:06:898 INFO] [Scripting] [bedrock-core] 'drav0011_shop' missing dependencies: drav0011_economy
+
+
+[2026-09-08 00:58:06:903 WARN] [Scripting] Custom Command alias [guide] already in use. Required to use full name [drav0011_shop:guide].
+
+
+[2026-09-08 00:58:06:903 WARN] [Scripting] Custom Command alias [list] already in use. Required to use full name [drav0011_shop:list].
+
+
+[2026-09-08 00:58:06:903 WARN] [Scripting] Custom Command alias [config] already in use. Required to use full name [drav0011_shop:config].
+
+
+[2026-09-08 00:58:06:903 WARN] [Scripting] Custom Command alias [configat] already in use. Required to use full name [drav0011_shop:configat].
+
+
+[2026-09-08 00:58:07:805 INFO] IPv4 supported, port: 19140: Used for gameplay
+[2026-09-08 00:58:07:805 INFO] IPv6 supported, port: 19141: Used for gameplay
+[2026-09-08 00:58:07:832 INFO] Signed in to signaling service successfully
+[2026-09-08 00:58:07:845 INFO] Server started.
+[2026-09-08 00:58:07:845 INFO] ================ TELEMETRY MESSAGE ===================
+[2026-09-08 00:58:07:845 INFO] Server Telemetry is currently not enabled. 
+[2026-09-08 00:58:07:845 INFO] Enabling this telemetry helps us improve the game.
+[2026-09-08 00:58:07:845 INFO] 
+[2026-09-08 00:58:07:845 INFO] To enable this feature, add the line 'emit-server-telemetry=true'
+[2026-09-08 00:58:07:845 INFO] to the server.properties file in the handheld/src-server directory
+[2026-09-08 00:58:07:845 INFO] ======================================================
+[2026-09-08 00:58:07:852 WARN] [Scripting] Custom Command alias [list] already in use. Required to use full name [drav0011_economy:list].
+
+
+[2026-09-08 00:58:07:859 WARN] [Scripting] [economy] event none off ×1
+
+
+[2026-09-08 00:58:07:860 WARN] [Scripting] [economy] event none off ×1
+
+
+[2026-09-08 00:58:07:860 WARN] [Scripting] [economy] event none off ×1
+
+
+[2026-09-08 00:58:07:860 WARN] [Scripting] [economy] group changed, balance now 150
+
+
+[2026-09-08 00:58:07:861 WARN] [Scripting] [economy] currency gold → emerald
+
+
+[2026-09-08 00:58:07:861 WARN] [Scripting] [economy] group changed, balance now 100
+
+
+[2026-09-08 00:58:07:869 INFO] [Scripting] [bedrock-core] 'drav0011_shop' dependencies resolved: drav0011_economy
+
+
+[2026-09-08 00:58:07:970 INFO] Game rule sendcommandfeedback has been updated to true
+[2026-09-08 00:58:07:970 INFO] Added ticking area from 0, 0, 0 to 143, 0, 143 marked for preload.
+1/10 ticking areas in use.
+Running test batch ':0' (11 tests)...
+[2026-09-08 00:58:08:024 INFO] Running 11 tests with tag 'core'...
+onTestStructureLoaded: core:serialize
+onTestStructureLoaded: core:send_latency
+onTestStructureLoaded: core:backpressure
+onTestStructureLoaded: core:packing
+onTestStructureLoaded: core:message_cap_units
+onTestStructureLoaded: core:discovery_and_rpc
+onTestStructureLoaded: core:rpc_to_self
+onTestStructureLoaded: core:shared_replication
+onTestStructureLoaded: core:distinct_vs_collision
+onTestStructureLoaded: core:feature_toggle
+onTestStructureLoaded: core:cross_pack_shop_present
+[2026-09-08 00:58:08:225 WARN] [Scripting] BENCH {"name":"serialize","payload":"5B","runs":100,"chars":85,"encodeMs":0,"decodeMs":1}
+
+
+[2026-09-08 00:58:08:227 WARN] [Scripting] BENCH {"name":"serialize","payload":"200B","runs":100,"chars":326,"encodeMs":1,"decodeMs":1}
+
+
+[2026-09-08 00:58:08:236 WARN] [Scripting] BENCH {"name":"serialize","payload":"16KB","runs":10,"chars":16145,"encodeMs":5,"decodeMs":4}
+
+
+onTestPassed: core:serialize
+[2026-09-08 00:58:08:309 ERROR] [Scripting] [bedrock-core] collision: another instance shares identity 'test_clash_same'
+
+
+[2026-09-08 00:58:08:314 ERROR] [Scripting] [bedrock-core] collision: another instance shares identity 'test_clash_same'
+
+
+[2026-09-08 00:58:08:374 ERROR] [Scripting] [bedrock-core] collision: another instance shares identity 'test_clash_same'
+
+
+[2026-09-08 00:58:08:374 ERROR] [Scripting] [bedrock-core] collision: another instance shares identity 'test_clash_same'
+
+
+onTestPassed: core:rpc_to_self
+onTestPassed: core:distinct_vs_collision
+onTestPassed: core:discovery_and_rpc
+onTestPassed: core:shared_replication
+onTestPassed: core:feature_toggle
+onTestPassed: core:cross_pack_shop_present
+[2026-09-08 00:58:10:805 WARN] [Scripting] BENCH {"name":"message_cap_units","encoding":"ascii","stringLength":2000,"approxUtf8Bytes":2000,"sendThrew":null,"arrived":true}
+
+
+[2026-09-08 00:58:10:805 WARN] [Scripting] BENCH {"name":"message_cap_units","encoding":"latin1","stringLength":2000,"approxUtf8Bytes":4000,"sendThrew":null,"arrived":true}
+
+
+[2026-09-08 00:58:10:805 WARN] [Scripting] BENCH {"name":"message_cap_units","encoding":"cjk","stringLength":2000,"approxUtf8Bytes":6000,"sendThrew":null,"arrived":true}
+
+
+[2026-09-08 00:58:10:805 WARN] [Scripting] BENCH {"name":"message_cap_units","encoding":"astral","stringLength":2000,"approxUtf8Bytes":4000,"sendThrew":null,"arrived":true}
+
+
+onTestPassed: core:message_cap_units
+[2026-09-08 00:58:10:916 ERROR] [Scripting] [drav0011_economy.meta.name] Error: bc-probe: uncaught from a deferred callback    at <anonymous> (main.js:15978)
+
+
+
+[2026-09-08 00:58:11:312 WARN] [Scripting] BENCH {"name":"packing","envelopesSent":40,"messagesOnWire":40,"envelopesDelivered":40,"envelopesPerMessage":1}
+
+
+onTestPassed: core:packing
+[2026-09-08 00:58:12:312 WARN] [Scripting] BENCH {"name":"send_latency","payload":"5B","ticks":0,"ms":34}
+
+
+[2026-09-08 00:58:12:312 WARN] [Scripting] BENCH {"name":"send_latency","payload":"200B","ticks":0,"ms":2}
+
+
+[2026-09-08 00:58:12:312 WARN] [Scripting] BENCH {"name":"send_latency","payload":"16KB","ticks":0,"ms":11}
+
+
+onTestPassed: core:send_latency
+[2026-09-08 00:58:15:317 WARN] [Scripting] BENCH {"name":"backpressure","concurrent":3,"payload":"16KB","received":3,"ticks":0,"ms":81}
+
+
+onTestPassed: core:backpressure
+[2026-09-08 00:58:15:412 INFO] Server stop requested.
+[2026-09-08 00:58:15:477 INFO] Stopping server...
+Quit correctly

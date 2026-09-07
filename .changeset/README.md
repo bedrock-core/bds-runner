@@ -3,6 +3,15 @@
 This folder is managed by [Changesets](https://github.com/changesets/changesets).
 It tracks pending version bumps and changelog entries for `@bedrock-core/bds-runner`.
 
+## Not yet
+
+**The package has never been published, so do not write changesets yet.** A changelog entry
+describes the delta between two released versions, and there is no released version to diff
+against. Until the first publish, set `version` in `package.json` directly. The first release is
+`0.1.0`.
+
+Everything below applies from the second release onward.
+
 ## Authoring a changeset
 
 When you make a change worth releasing, run:

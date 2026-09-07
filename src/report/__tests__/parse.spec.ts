@@ -146,3 +146,37 @@ describe('report:summarise', () => {
     expect(summarise(parseReport(BOOT)).infraError).toMatch(/no tests for tag 'bc:nope'/);
   });
 });
+
+describe('report:parse script errors', () => {
+  const SCRIPT = fixture('bds-script-error-1.26.43.1.log');
+
+  it('collects an uncaught exception the engine logged against a pack', () => {
+    const errors = parseReport(SCRIPT).scriptErrors;
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('uncaught from a deferred callback');
+    expect(errors[0]).toContain('[drav0011_economy.meta.name]');
+  });
+
+  it('ignores an error a pack chose to log itself', () => {
+    // The same transcript has four deliberate console.error lines at the same level. Only an
+    // uncaught exception opens with an Error class or carries a stack frame.
+    const errors = parseReport(SCRIPT).scriptErrors;
+
+    expect(errors.some(e => e.includes('collision: another instance'))).toBe(false);
+  });
+
+  it('does not fail the tests it appeared alongside', () => {
+    const summary = summarise(parseReport(SCRIPT));
+
+    expect(summary.passed).toBe(11);
+    expect(summary.failed).toBe(0);
+    // The verdicts are clean; it is the caller that decides this run is not green.
+    expect(summary.infraError).toBeNull();
+    expect(summary.scriptErrors).toHaveLength(1);
+  });
+
+  it('finds none in a transcript that had none', () => {
+    expect(parseReport(RUNSET).scriptErrors).toEqual([]);
+  });
+});

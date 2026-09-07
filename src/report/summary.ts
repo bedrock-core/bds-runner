@@ -92,6 +92,15 @@ export function formatSummary(options: FormatOptions): string {
     out.push(paint(`  ${knownHit} of ${failures.length} failure(s) are known and expected`, 'dim'));
   }
 
+  // Shown whether or not they fail the run: an exception no test could see is worth reading even
+  // when the caller has opted out of failing on it.
+  if (summary.scriptErrors.length > 0) {
+    out.push('');
+    out.push(paint(`  ${summary.scriptErrors.length} uncaught script error(s), seen by no test:`, 'yellow'));
+
+    for (const error of summary.scriptErrors) { out.push(paint(`      ${error}`, 'dim')); }
+  }
+
   if (summary.infraError) {
     out.push('');
     out.push(paint(`  infrastructure: ${summary.infraError}`, 'red'));

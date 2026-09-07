@@ -22,6 +22,14 @@ export interface RunOptions {
   /** Ids that are expected to fail; they do not make the run red. */
   knownFailures?: string[];
 
+  /**
+   * Report uncaught script errors without failing the run.
+   *
+   * They are always reported. By default one also fails the run, because an exception thrown
+   * outside a test's call stack cannot fail a test and would otherwise leave a green build.
+   */
+  allowScriptErrors?: boolean;
+
   levelName?: string;
   port?: number;
   origin?: string;
@@ -223,6 +231,12 @@ function buildResult(
     summary.infraError
       = `expected ${settings.expectRegistered} registered tests but the engine announced ${summary.expected}. `
         + 'A suite was probably added, removed, or failed to register.';
+  }
+
+  if (!settings.allowScriptErrors && summary.infraError === null && summary.scriptErrors.length > 0) {
+    summary.infraError
+      = `${summary.scriptErrors.length} uncaught script error(s) were logged. They are thrown outside `
+        + 'any test, so no test can fail on them. Pass --allow-script-errors to report without failing.';
   }
 
   return { summary, transcript, logFile, durationMs, bdsVersion, regressions };

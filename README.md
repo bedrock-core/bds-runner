@@ -65,6 +65,7 @@ bc-bds where                                     show which build will be used, 
 | `--tag <tag>` | The gametest tag to run. Required. |
 | `--expect-registered <n>` | Fail unless the engine announces exactly `n` tests. Catches a suite that silently failed to register. |
 | `--known-failure <id>` | A test that is expected to fail. Repeatable. It is reported but does not make the run red. |
+| `--allow-script-errors` | Report uncaught script errors without failing the run. See [Uncaught script errors](#uncaught-script-errors). |
 | `--origin "<x> <y> <z>"` | Where test plots are placed. Default `8 -60 8`. |
 | `--idle <seconds>` | End the run once the server has been quiet this long with every test accounted for. Default 45. |
 | `--timeout <seconds>` | Wall-clock limit for the whole run. Default 900. |
@@ -141,6 +142,27 @@ CheckNetIsolation LoopbackExempt -a -n=Microsoft.MinecraftUWP_8wekyb3d8bbwe
 
 Any test the engine announces but never reports a verdict for is counted as a failure. The run
 is over when every announced test has a verdict, or when the idle or wall-clock timeout fires.
+
+## Uncaught script errors
+
+An exception thrown outside a test — from an event subscriber or a deferred callback — shares no
+call stack with any test, so no test can fail on it. The engine catches it, logs it against your
+pack, and carries on. Left alone that is a green build over broken code.
+
+The runner collects these and fails the run by default:
+
+```
+✓ 11 passed, 0 failed   (core, BDS 1.26.43.1, 10.0s)
+
+  1 uncaught script error(s), seen by no test:
+      [my_addon] Error: something broke    at <anonymous> (main.js:15976)
+
+  infrastructure: 1 uncaught script error(s) were logged.
+```
+
+Errors your own code logs with `console.error` are left alone; only an exception the engine
+reports counts, recognised by its error class or its stack frame. Pass `--allow-script-errors` to
+report them without failing.
 
 ## Configuration
 

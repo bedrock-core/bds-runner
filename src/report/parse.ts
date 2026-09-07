@@ -42,6 +42,28 @@ const NO_TESTS_RE = /No tests found for tag\s+'([^']*)'/;
 const EXPERIMENTS_RE = /Experiment\(s\) active:\s*(.+?)\s*$/;
 
 /**
+ * An error the engine logged against a pack, in either shape it uses:
+ *
+ * ```
+ * [… ERROR] [Scripting] [my_addon] Error: boom    at <anonymous> (main.js:15978)
+ * [… ERROR] [Scripting] [my_addon] collision: another instance shares that identity
+ * ```
+ *
+ * Both are the same line shape, so the level alone cannot tell them apart.
+ */
+const SCRIPT_ERROR_RE = /\bERROR\]\s*\[Scripting\]\s*(?:\[([^\]]*)\]\s*)?(.+?)\s*$/;
+
+/**
+ * What separates an exception nobody caught from a pack calling `console.error`.
+ *
+ * An uncaught exception is printed by the engine from a real `Error`, so it opens with the error's
+ * class name and usually carries a stack frame. A message the pack chose to log has neither.
+ * Deliberate error logging is common in test suites, so matching on the level alone would turn
+ * every such suite red.
+ */
+const UNCAUGHT_RE = /^[A-Za-z_$][\w$]*Error\b:\s|\bat\s+\S[^()]*\([^)]*:\d+\)/;
+
+/**
  * A run starts at its batch/expected announcement. The console is one stream across every `runset`
  * in a session, so parsing anchors on the last announcement and ignores everything before it.
  */
@@ -70,6 +92,13 @@ export interface Report {
 
   /** Experiments BDS reported active at boot, e.g. `['gtst']`. */
   experiments: string[];
+
+  /**
+   * Exceptions the engine caught and logged rather than any test seeing them — a throw from an
+   * event subscriber or a deferred callback, which shares no call stack with a test and so cannot
+   * fail one. Collected across the whole transcript, since each run writes its own log.
+   */
+  scriptErrors: string[];
 }
 
 const EMPTY: Report = {
@@ -81,6 +110,7 @@ const EMPTY: Report = {
   failed: [],
   noTestsForTag: null,
   experiments: [],
+  scriptErrors: [],
 };
 
 /**
@@ -93,13 +123,23 @@ export function parseReport(text: string): Report {
   const lines = text.split(/\r?\n/);
 
   // Experiments are announced at boot, before the run anchor, so they are collected from the whole
-  // transcript.
+  // transcript. Uncaught errors are gathered the same way: one belonging to this run can be logged
+  // while packs load, well before any test is announced.
   const experiments: string[] = [];
+  const scriptErrors: string[] = [];
 
   for (const line of lines) {
     const m = EXPERIMENTS_RE.exec(line);
 
     if (m) { experiments.push(...m[1].split(/[,\s]+/).filter(Boolean)); }
+
+    const error = SCRIPT_ERROR_RE.exec(line);
+
+    if (error && UNCAUGHT_RE.test(error[2])) {
+      const pack = error[1] ? `[${error[1]}] ` : '';
+
+      scriptErrors.push(`${pack}${error[2]}`);
+    }
   }
 
   // Anchor on the last run announcement. The engine announces a run as one `Running test batch …`
@@ -121,7 +161,7 @@ export function parseReport(text: string): Report {
     break;
   }
 
-  const report: Report = { ...EMPTY, experiments, batches: [], loaded: [], passed: [], failed: [] };
+  const report: Report = { ...EMPTY, experiments, scriptErrors, batches: [], loaded: [], passed: [], failed: [] };
 
   for (const line of lines.slice(start)) {
     const batch = BATCH_RE.exec(line);
@@ -235,6 +275,9 @@ export interface Summary {
   tag: string | null;
   experiments: string[];
 
+  /** Exceptions the engine logged that no test could have seen. See {@link Report.scriptErrors}. */
+  scriptErrors: string[];
+
   /**
    * Set when the transcript itself is untrustworthy — the engine announced nothing, or the tag
    * matched nothing. Distinct from test failures: this is exit code 2, not 1.
@@ -265,6 +308,7 @@ export function summarise(report: Report): Summary {
     expected: report.expected,
     tag: report.tag,
     experiments: report.experiments,
+    scriptErrors: report.scriptErrors,
     infraError,
   };
 }

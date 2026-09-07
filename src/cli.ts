@@ -45,6 +45,7 @@ Options for \`run\`:
   --tag <tag>                  gametest tag to run                       (required)
   --expect-registered <n>      fail unless the engine announces n tests
   --known-failure <id>         a test expected to fail; repeatable
+  --allow-script-errors        report uncaught script errors without failing
   --origin "<x> <y> <z>"       where to place the test plots     (default "8 -60 8")
   --idle <seconds>             quiet time that ends a run                (default 45)
   --timeout <seconds>          wall-clock limit for the whole run       (default 900)
@@ -141,6 +142,7 @@ async function commandRun(args: Args): Promise<number> {
     fresh: args.flags.has('fresh'),
     offline: args.flags.has('offline'),
     keepAlive: args.flags.has('keep-alive'),
+    allowScriptErrors: args.flags.has('allow-script-errors'),
     echo: !args.flags.has('quiet'),
     onProgress: message => process.stdout.write(`  ${message}\n`),
 
@@ -169,6 +171,7 @@ async function commandRun(args: Args): Promise<number> {
       durationMs: result.durationMs,
       verdicts: result.summary.verdicts,
       regressions: result.regressions,
+      scriptErrors: result.summary.scriptErrors,
       infraError: result.summary.infraError,
     }, null, 2)}\n`);
   }
