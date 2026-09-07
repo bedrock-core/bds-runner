@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { logsDir } from './bds/paths';
+import { loadConfig, logsDir } from './bds/paths';
 import { resolveBds } from './bds/resolve';
 import { parseReport, type Summary, summarise } from './report/parse';
 import { deployPacks, discoverPacks } from './server/packs';
@@ -32,9 +32,10 @@ export interface RunOptions {
   echo?: boolean;
   offline?: boolean;
 
-  /** Run against a build other than the one in `bds-version.json`, just for this run. */
+  /** Run against a build other than the one in the config file, just for this run. */
   bdsVersion?: string;
   bdsChannel?: 'stable' | 'preview';
+  configPath?: string;
 
   /**
    * After the verdicts are in, keep the server running so a person can connect and look at the
@@ -102,11 +103,16 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
 
   // `resolveBds` reports the build it actually settled on, which is not the pin when that is
   // `latest` or when BC_BDS_PATH supplied the server.
+  const config = loadConfig({
+    version: settings.bdsVersion,
+    channel: settings.bdsChannel,
+    configPath: settings.configPath,
+  });
   const bds = await resolveBds({
     onProgress,
     offline: settings.offline,
-    version: settings.bdsVersion,
-    channel: settings.bdsChannel,
+    version: config.version,
+    channel: config.channel,
   });
   const version = bds.version;
 
@@ -117,6 +123,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
     port: settings.port,
     watchdogHangMs: settings.watchdogHangMs,
     lanVisible: settings.keepAlive,
+    properties: config.properties,
     fresh: settings.fresh,
     onProgress,
   });

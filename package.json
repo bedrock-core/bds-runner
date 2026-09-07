@@ -1,6 +1,6 @@
 {
 	"name": "@bedrock-core/bds-runner",
-	"version": "0.1.0",
+	"version": "0.0.0",
 	"description": "Runs Minecraft GameTests headlessly on a Bedrock Dedicated Server and reports a CI exit code",
 	"keywords": [
 		"minecraft",
@@ -48,7 +48,10 @@
 		"test": "vitest run",
 		"coverage": "vitest run --coverage",
 		"fetch": "node bin/bc-bds.mjs fetch",
-		"where": "node bin/bc-bds.mjs where"
+		"where": "node bin/bc-bds.mjs where",
+		"changeset": "changeset",
+		"version-packages": "changeset version",
+		"release": "yarn lint && yarn typecheck && yarn test && changeset publish"
 	},
 	"dependencies": {
 		"jiti": "^2.7.0",
@@ -56,6 +59,8 @@
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {
+		"@changesets/changelog-github": "^0.7.0",
+		"@changesets/cli": "^2.31.0",
 		"@eslint/js": "^10.0.1",
 		"@stylistic/eslint-plugin": "^5.10.0",
 		"@types/node": "^26.2.0",

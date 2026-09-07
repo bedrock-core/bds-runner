@@ -83,7 +83,7 @@ Accepted by every command. See [Choosing the server build](#choosing-the-server-
 | --- | --- |
 | `--bds-version <v>` | An exact build such as `1.26.45.1`, or `latest`. |
 | `--bds-channel <c>` | `stable` or `preview`. |
-| `--config <path>` | Read this `bds-version.json` instead of searching for one. |
+| `--config <path>` | Read this `bds-runner.json` instead of searching for one. |
 
 ### What `--packs` accepts
 
@@ -142,36 +142,57 @@ CheckNetIsolation LoopbackExempt -a -n=Microsoft.MinecraftUWP_8wekyb3d8bbwe
 Any test the engine announces but never reports a verdict for is counted as a failure. The run
 is over when every announced test has a verdict, or when the idle or wall-clock timeout fires.
 
-## Choosing the server build
+## Configuration
 
-By default the runner uses the newest stable build.
+Add a `bds-runner.json` at or above the directory you run the command from, usually the project
+root. Every key is optional.
 
-To use a specific build for one run:
+```json
+{
+  "$schema": "./.bds/schema/bds-runner.json",
+  "version": "1.26.45.1",
+  "channel": "stable",
+  "properties": {
+    "view-distance": 8,
+    "difficulty": "normal"
+  }
+}
+```
+
+| Key | Effect |
+| --- | --- |
+| `version` | An exact build, or `"latest"`. Default `"latest"`. |
+| `channel` | `stable` or `preview`. Default `stable`. |
+| `properties` | Overrides written into `server.properties` before every run. Any key the server documents. |
+
+### Server properties
+
+The runner sets creative mode, peaceful difficulty, cheats, operator permission, no Xbox Live
+sign-in, a small view and tick distance, no idle kick, and a raised script watchdog. Anything in
+`properties` is applied over those, so `"difficulty": "normal"` wins.
+
+Five keys cannot be overridden because the runner depends on them: `level-name`, `server-port`
+and `server-portv6` (use `--port`), `allow-cheats`, and `online-mode`. Setting one is an
+error that names what controls it.
+
+### Choosing the server build
+
+By default the runner uses the newest stable build. For one run:
 
 ```bash
 bc-bds run --packs ./build --tag my-suite --bds-version 1.26.45.1
 bc-bds where --bds-channel preview
 ```
 
-To commit the choice so every developer and every CI job use the same engine, add a
-`bds-version.json` at or above the directory you run the command from, usually the project root:
-
-```json
-{ "version": "1.26.45.1", "channel": "stable" }
-```
-
-`version` is an exact build or `"latest"`. `channel` is `stable` or `preview`. Both keys are
-optional.
-
 Precedence, highest first:
 
 1. `--bds-version` / `--bds-channel`
 2. `BC_BDS_VERSION` / `BC_BDS_CHANNEL`
-3. The nearest `bds-version.json`, or the file named by `--config`
+3. The nearest `bds-runner.json`, or the file named by `--config`
 4. Newest `stable`
 
-`bc-bds where` prints the selected build, the config file it came from, and the current upstream
-builds.
+`bc-bds where` prints the selected build, the config file it came from, the schema path, and the
+current upstream builds.
 
 Build metadata comes from [Bedrock-OSS/BDS-Versions](https://github.com/Bedrock-OSS/BDS-Versions);
 the download itself comes from minecraft.net and is checked against the published SHA-1. If the

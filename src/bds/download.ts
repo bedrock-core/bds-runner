@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import yauzl from 'yauzl';
@@ -9,8 +10,20 @@ import { type BdsBuild, fetchBuild } from './versions';
 /**
  * Keep this a bare `name/version` token. The download host resets the connection for any
  * `User-Agent` that carries a bot-style comment such as `(+https://example.com/bot)`.
+ *
+ * The version is read from this package's own manifest so it cannot drift from the release.
  */
-const USER_AGENT = 'bedrock-core-bds-runner/0.1.0';
+const USER_AGENT = `bedrock-core-bds-runner/${packageVersion()}`;
+
+function packageVersion(): string {
+  try {
+    const manifest = createRequire(import.meta.url)('../../package.json') as { version?: string };
+
+    return manifest.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 /** Time allowed to get response headers back. The body then streams under `STALL_MS`. */
 const CONNECT_TIMEOUT_MS = 30_000;

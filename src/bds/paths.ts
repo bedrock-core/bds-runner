@@ -4,11 +4,11 @@ import path from 'node:path';
 /** Marks the consumer's project root when no config file is committed. */
 const PROJECT_MARKERS = ['package.json', '.git'];
 
-/** The config file a project may commit to fix the engine its tests run on. */
-export const CONFIG_FILE = 'bds-version.json';
+/** The config file a project may commit: which build to run and any server property overrides. */
+export const CONFIG_FILE = 'bds-runner.json';
 
 /** Used when no flag, environment variable or config file names a build. */
-const DEFAULTS: PinnedVersion = { version: 'latest', channel: 'stable' };
+const DEFAULTS = { version: 'latest', channel: 'stable' as const };
 
 function findUp(name: string, from: string): string | undefined {
   let dir = path.resolve(from);
@@ -63,6 +63,11 @@ export function logsDir(): string {
   return path.join(bdsHome(), 'logs');
 }
 
+/** The JSON Schema for the config file, regenerated from the selected server on every resolve. */
+export function schemaFile(): string {
+  return path.join(bdsHome(), 'schema', CONFIG_FILE);
+}
+
 export function platformKey(): 'win32-x64' | 'linux-x64' {
   if (process.platform === 'win32') { return 'win32-x64'; }
 
@@ -84,6 +89,12 @@ export interface PinnedVersion {
 
   /** Which BDS-Versions tree the build is looked up in. */
   channel: 'stable' | 'preview';
+}
+
+/** The project's config file, resolved against flags and environment. */
+export interface RunnerConfig extends PinnedVersion {
+  /** `server.properties` overrides. Keys and types come from the selected server; see `schemaFile`. */
+  properties: Record<string, string | number | boolean>;
 }
 
 /** Overrides for a single run, from a CLI flag. Both accept the same values as the config file. */
@@ -110,7 +121,23 @@ export function findConfig(from: string = process.cwd()): string | undefined {
   return dir ? path.join(dir, CONFIG_FILE) : undefined;
 }
 
-function readConfig(file: string): Partial<PinnedVersion> {
+function asProperties(raw: unknown, source: string): Record<string, string | number | boolean> {
+  if (raw === undefined || raw === null) { return {}; }
+
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`${source} must be an object of server.properties keys`);
+  }
+
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!['string', 'number', 'boolean'].includes(typeof value)) {
+      throw new Error(`${source}: "${key}" must be a string, number or boolean`);
+    }
+  }
+
+  return raw as Record<string, string | number | boolean>;
+}
+
+function readConfig(file: string): Partial<RunnerConfig> {
   let parsed: unknown;
 
   try {
@@ -123,17 +150,24 @@ function readConfig(file: string): Partial<PinnedVersion> {
     throw new Error(`${file} must contain a JSON object`);
   }
 
-  const { version, channel } = parsed as Record<string, unknown>;
+  const { version, channel, properties } = parsed as Record<string, unknown>;
 
   if (version !== undefined && typeof version !== 'string') {
     throw new Error(`${file}: "version" must be a string`);
   }
 
-  return { version, channel: asChannel(channel, `${file}: "channel"`) };
+  return {
+    version,
+    channel: asChannel(channel, `${file}: "channel"`),
+    properties: asProperties(properties, `${file}: "properties"`),
+  };
 }
 
-/** Which build to run: CLI flag, then environment, then the nearest config file, then `latest` stable. */
-export function pinnedVersion(override: VersionOverride = {}): PinnedVersion {
+/**
+ * The effective config. Build selection is CLI flag, then environment, then the config file, then
+ * `latest` stable; server property overrides come from the config file alone.
+ */
+export function loadConfig(override: VersionOverride = {}): RunnerConfig {
   const file = override.configPath ?? findConfig();
   const config = file ? readConfig(file) : {};
 
@@ -146,5 +180,13 @@ export function pinnedVersion(override: VersionOverride = {}): PinnedVersion {
       ?? asChannel(process.env.BC_BDS_CHANNEL, 'BC_BDS_CHANNEL')
       ?? config.channel
       ?? DEFAULTS.channel,
+    properties: config.properties ?? {},
   };
+}
+
+/** Which build to run. See `loadConfig`. */
+export function pinnedVersion(override: VersionOverride = {}): PinnedVersion {
+  const { version, channel } = loadConfig(override);
+
+  return { version, channel };
 }

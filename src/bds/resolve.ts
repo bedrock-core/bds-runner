@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fetchBds } from './download';
-import { cacheDir, pinnedVersion, platformKey, serverExecutable } from './paths';
+import { writeConfigSchema } from '../server/schema';
+import { cacheDir, pinnedVersion, platformKey, schemaFile, serverExecutable } from './paths';
 import { LATEST, resolveVersion } from './versions';
 
 export interface ResolvedBds {
@@ -60,20 +61,30 @@ export interface ResolveOptions {
   /** Fail instead of downloading. Used by callers that must not touch the network. */
   offline?: boolean;
 
-  /** Run against a build other than the one in `bds-version.json`, just for this run. */
+  /** Run against a build other than the one in the config file, just for this run. */
   version?: string;
   channel?: 'stable' | 'preview';
+  configPath?: string;
 }
 
 /**
- * Finds a server to run: `BC_BDS_PATH`, else the cache, else a download.
+ * Finds a server to run: `BC_BDS_PATH`, else the cache, else a download. Also regenerates the
+ * config file's JSON Schema from that server's `server.properties`.
  *
  * `latest` is resolved against BDS-Versions before the cache is consulted, so the cache answers for
  * the build that is current now.
  */
 export async function resolveBds(options: ResolveOptions = {}): Promise<ResolvedBds> {
+  const resolved = await locateBds(options);
+
+  await writeConfigSchema(resolved.dir, resolved.version, schemaFile());
+
+  return resolved;
+}
+
+async function locateBds(options: ResolveOptions): Promise<ResolvedBds> {
   const { onProgress = (): void => {}, offline = false } = options;
-  const pinned = pinnedVersion({ version: options.version, channel: options.channel });
+  const pinned = pinnedVersion({ version: options.version, channel: options.channel, configPath: options.configPath });
   const { channel } = pinned;
   const platform = platformKey();
 
@@ -96,7 +107,7 @@ export async function resolveBds(options: ResolveOptions = {}): Promise<Resolved
   if (pinned.version === LATEST && offline) {
     throw new Error(
       'the pinned version is "latest", which has to be looked up in BDS-Versions, and downloading '
-      + 'is disabled. Pass --bds-version, set an exact "version" in bds-version.json, or set '
+      + 'is disabled. Pass --bds-version, set an exact "version" in bds-runner.json, or set '
       + 'BC_BDS_PATH to a server you already have.',
     );
   }

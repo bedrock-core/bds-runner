@@ -7,13 +7,16 @@ import {
   pinnedVersion,
   platformKey,
   projectRoot,
+  schemaFile,
   serverDir,
+  serverExecutable,
   type VersionOverride,
 } from './bds/paths';
-import { fetchIndex, LATEST } from './bds/versions';
+import { channelOf, fetchIndex, LATEST } from './bds/versions';
 import { resolveBds } from './bds/resolve';
 import { formatSummary } from './report/summary';
 import { runGameTests } from './run';
+import { writeConfigSchema } from './server/schema';
 
 /**
  *   0  every test passed, or only known failures did
@@ -34,7 +37,7 @@ bc-bds — run Minecraft GameTests on a Bedrock Dedicated Server
 Which server build (any command). Defaults to the newest stable build:
   --bds-version <v>            an exact build, or "latest"
   --bds-channel <c>            stable | preview
-  --config <path>              a bds-version.json to read instead of searching
+  --config <path>              a bds-runner.json to read instead of searching
 
 Options for \`run\`:
   --packs <dir>                directory containing BP/ and RP/; repeatable, so
@@ -128,6 +131,7 @@ async function commandRun(args: Args): Promise<number> {
     tag,
     bdsVersion: bds.version,
     bdsChannel: bds.channel,
+    configPath: bds.configPath,
     expectRegistered: number(args, 'expect-registered'),
     knownFailures,
     origin: first(args, 'origin'),
@@ -201,14 +205,23 @@ async function commandWhere(args: Args): Promise<number> {
   if (process.env.BC_BDS_PATH) { process.stdout.write(`override: BC_BDS_PATH=${process.env.BC_BDS_PATH}\n`); }
 
   const index = await fetchIndex(platform);
-  const latest = pinned.channel === 'preview' ? index.preview : index.stable;
+  const { current: latest, versions: published } = channelOf(index, pinned.channel);
   const target = pinned.version === LATEST ? latest : pinned.version;
 
+  const cache = cacheDir(target, platform);
+
+  // The schema needs the server's own server.properties, so it can be refreshed here only when the
+  // build is already cached.
+  const cached = await fs.access(path.join(cache, serverExecutable())).then(() => true, () => false);
+
+  if (cached) { await writeConfigSchema(cache, target, schemaFile()); }
+
   process.stdout.write(`resolved: ${target}\n`);
-  process.stdout.write(`cache:    ${cacheDir(target, platform)}\n`);
+  process.stdout.write(`cache:    ${cache}${cached ? '' : ' (not downloaded yet)'}\n`);
   process.stdout.write(`server:   ${serverDir(target)}\n`);
+  process.stdout.write(`schema:   ${schemaFile()}${cached ? '' : ' (written on first fetch)'}\n`);
   process.stdout.write(`\nupstream: stable ${index.stable}, preview ${index.preview} `);
-  process.stdout.write(`(${index.versions.length} builds indexed)\n`);
+  process.stdout.write(`(${index.versions.length} stable and ${index.previewVersions.length} preview builds indexed)\n`);
 
   if (pinned.version !== LATEST && latest !== pinned.version) {
     process.stdout.write(`\nA newer ${pinned.channel} build is available: ${latest}.\n`);
@@ -216,8 +229,8 @@ async function commandWhere(args: Args): Promise<number> {
     process.stdout.write('or pass --bds-version.\n');
   }
 
-  if (pinned.version !== LATEST && !index.versions.includes(pinned.version)) {
-    process.stdout.write(`\nWARNING: ${pinned.version} is not in the BDS-Versions index — check the pin.\n`);
+  if (pinned.version !== LATEST && !published.includes(pinned.version)) {
+    process.stdout.write(`\nWARNING: ${pinned.version} is not a published ${pinned.channel} build — check the pin and channel.\n`);
   }
 
   return EXIT.ok;

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { serverDir as serverDirFor, serverExecutable } from '../bds/paths';
-import { renderServerProperties } from './properties';
+import { type PropertyValue, renderServerProperties } from './properties';
 
 /** Modules the world's scripts may import. Written explicitly so the run does not depend on a build's default `permissions.json`. */
 const ALLOWED_MODULES = [
@@ -20,6 +20,9 @@ export interface ProvisionOptions {
 
   /** Advertise on the LAN, for a server that will be held open for someone to join. */
   lanVisible?: boolean;
+
+  /** `server.properties` overrides from the config file. */
+  properties?: Record<string, PropertyValue>;
 
   /** Delete the whole server tree first, forcing a fresh copy and a fresh world bootstrap. */
   fresh?: boolean;
@@ -44,7 +47,7 @@ async function exists(target: string): Promise<boolean> {
  * The world is reset separately; see `resetWorldChunks`.
  */
 export async function provisionServer(options: ProvisionOptions): Promise<ProvisionResult> {
-  const { cacheDir, version, levelName, port, watchdogHangMs, lanVisible = false, fresh = false } = options;
+  const { cacheDir, version, levelName, port, watchdogHangMs, lanVisible = false, properties, fresh = false } = options;
   const onProgress = options.onProgress ?? ((): void => {});
 
   const dir = serverDirFor(version);
@@ -66,7 +69,7 @@ export async function provisionServer(options: ProvisionOptions): Promise<Provis
 
   await fs.writeFile(
     path.join(dir, 'server.properties'),
-    renderServerProperties({ levelName, port, portV6: port + 1, watchdogHangMs, lanVisible }),
+    renderServerProperties({ levelName, port, portV6: port + 1, watchdogHangMs, lanVisible, overrides: properties }),
   );
 
   await fs.mkdir(path.join(dir, 'config', 'default'), { recursive: true });

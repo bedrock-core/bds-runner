@@ -41,7 +41,19 @@ export interface BdsBuild {
 export interface PlatformIndex {
   stable: string;
   preview: string;
+
+  /** Every stable build ever published. */
   versions: string[];
+
+  /** Every preview build ever published; a separate list, since the two never overlap. */
+  previewVersions: string[];
+}
+
+/** The channel's current build and its full list of published builds. */
+export function channelOf(index: PlatformIndex, channel: Channel): { current: string; versions: string[] } {
+  return channel === 'preview'
+    ? { current: index.preview, versions: index.previewVersions }
+    : { current: index.stable, versions: index.versions };
 }
 
 async function fetchJson(url: string): Promise<Record<string, unknown>> {
@@ -87,14 +99,13 @@ export async function fetchIndex(platform: string): Promise<PlatformIndex> {
     stable: String(entry.stable),
     preview: String(entry.preview),
     versions: (entry.versions as string[] | undefined) ?? [],
+    previewVersions: (entry.preview_versions as string[] | undefined) ?? [],
   };
 }
 
 /** The build a channel currently points at. Throws when the index cannot be read. */
 export async function currentVersion(channel: Channel, platform: string): Promise<string> {
-  const index = await fetchIndex(platform);
-
-  return channel === 'preview' ? index.preview : index.stable;
+  return channelOf(await fetchIndex(platform), channel).current;
 }
 
 /** Resolves `latest` against the index; an exact version is returned as is. */
@@ -112,10 +123,11 @@ export async function fetchBuild(version: string, channel: Channel, platform: st
     raw = await fetchJson(`${RAW_ROOT}/${dir}/${version}.json`);
   } catch (cause) {
     const index = await fetchIndex(platform).catch(() => null);
-    const known = index?.versions.slice(-5).join(', ');
-    const hint = index
-      ? ` Current ${channel} build is ${channel === 'preview' ? index.preview : index.stable}`
-      + (known ? `; most recent published: ${known}.` : '.')
+    const known = index ? channelOf(index, channel) : null;
+    const recent = known?.versions.slice(-5).join(', ');
+    const hint = known
+      ? ` Current ${channel} build is ${known.current}`
+      + (recent ? `; most recent published: ${recent}.` : '.')
       : '';
 
     throw new Error(`Bedrock Dedicated Server ${version} (${channel}, ${platform}) is not in BDS-Versions.${hint}`, { cause });

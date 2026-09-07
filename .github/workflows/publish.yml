@@ -1,0 +1,100 @@
+name: Release
+
+# Changesets flow with a manual publish.
+#
+# Author changesets during development (`yarn changeset`).
+#
+#   • push to `main` with changesets pending → the action opens/updates a
+#     "Version Packages" PR that bumps the version and writes the changelog.
+#     Nothing is published from a push, ever.
+#   • Run this workflow by hand (Actions → Release → Run workflow) after that PR
+#     has merged → the package is published to npm, tagged and given a GitHub
+#     release. A `private` package is skipped by the publish step.
+#
+# NOTE: opening the Version PR needs "Allow GitHub Actions to create and approve
+# pull requests" enabled under Settings → Actions → General. If that is off,
+# pass a PAT via the action's `github-token` input instead.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write        # push the version-bump commit/branch, tags and releases
+  pull-requests: write   # open and update the "Version Packages" PR
+  id-token: write        # OIDC for npm trusted publishing — no npm token anywhere
+
+jobs:
+  version:
+    name: Open or refresh the Version PR
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - run: corepack enable
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'yarn'
+
+      - run: yarn install --immutable
+
+      # No `publish` input: with changesets pending this opens the PR, and with
+      # none pending it does nothing.
+      - uses: changesets/action@v2
+        with:
+          version-script: yarn version-packages
+          commit-message: 'chore(release): version packages'
+          pr-title: 'chore(release): version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish to npm
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - run: corepack enable
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'yarn'
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@bedrock-core'
+
+      # Trusted publishing needs the OIDC exchange in the npm CLI, which shipped in
+      # npm 11.5.1 — newer than what the runner's Node bundles.
+      - name: Update npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - run: yarn install --immutable
+
+      # Refuse to publish while changesets are still pending: merge the Version PR first.
+      - name: Check that nothing is pending
+        run: |
+          pending=$(ls .changeset/*.md 2>/dev/null | grep -v '/README\.md$' || true)
+          if [ -n "$pending" ]; then
+            echo "Unreleased changesets are pending; merge the Version PR before publishing:"
+            echo "$pending"
+            exit 1
+          fi
+
+      - uses: changesets/action@v2
+        with:
+          publish-script: yarn release
+        env:
+          # No npm token: publishes authenticate via OIDC trusted publishing (the
+          # id-token permission above + a trusted publisher configured for the
+          # package on npmjs.com pointing at this repo and workflow file).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

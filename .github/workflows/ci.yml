@@ -20,13 +20,13 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Corepack installs the exact Yarn named in package.json's `packageManager`, so CI and every
       # developer run the same release without pinning it a second time here.
       - run: corepack enable
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: yarn
