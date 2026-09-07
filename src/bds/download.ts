@@ -7,26 +7,122 @@ import yauzl from 'yauzl';
 import { type BdsBuild, fetchBuild } from './versions';
 
 /**
- * Mojang's download host rejects the default `undici`/`curl` agent with a 403, so every request has
- * to identify itself. This is not cloaking — it is the identity the maintainers asked for.
+ * Keep this a bare `name/version` token. The download host resets the connection for any
+ * `User-Agent` that carries a bot-style comment such as `(+https://example.com/bot)`.
  */
-const USER_AGENT = '@bedrock-core/bds-runner (+github.com/bedrock-core/server)';
+const USER_AGENT = 'bedrock-core-bds-runner/0.1.0';
+
+/** Time allowed to get response headers back. The body then streams under `STALL_MS`. */
+const CONNECT_TIMEOUT_MS = 30_000;
+
+/** Time allowed between two chunks of the body, so a dead connection fails without capping a slow one. */
+const STALL_MS = 60_000;
+
+const ATTEMPTS = 3;
 
 export type Channel = 'stable' | 'preview';
 
-async function download(url: string, dest: string): Promise<void> {
-  const headers = new Headers();
+const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
-  headers.set('User-Agent', USER_AGENT);
+/** Wraps the body so a connection that goes quiet fails instead of hanging the whole run. */
+async function* withStallTimeout(
+  body: ReadableStream<Uint8Array>,
+  onChunk: (bytes: number) => void,
+): AsyncGenerator<Uint8Array> {
+  const reader = body.getReader();
 
-  const response = await fetch(url, { headers });
+  try {
+    for (;;) {
+      let timer: NodeJS.Timeout | undefined;
+      const stalled = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`download stalled for ${STALL_MS / 1000}s`)), STALL_MS);
+      });
+
+      let result: ReadableStreamReadResult<Uint8Array>;
+
+      try {
+        result = await Promise.race([reader.read(), stalled]);
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (result.done) { return; }
+
+      if (result.value) {
+        onChunk(result.value.byteLength);
+        yield result.value;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
+async function downloadOnce(
+  url: string,
+  dest: string,
+  expectedBytes: number,
+  onProgress: (message: string) => void,
+): Promise<void> {
+  const response = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT, 'accept': 'application/zip,*/*' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+  });
 
   if (!response.ok || !response.body) {
     throw new Error(`GET ${url} returned ${response.status} ${response.statusText}`);
   }
 
+  const total = Number(response.headers.get('content-length') ?? expectedBytes);
+  let received = 0;
+  let lastReport = 0;
+
   await fs.mkdir(path.dirname(dest), { recursive: true });
-  await pipeline(response.body, createWriteStream(dest));
+  await fs.rm(dest, { force: true });
+
+  await pipeline(
+    withStallTimeout(response.body, (bytes) => {
+      received += bytes;
+
+      // Report every 10%, so a long download shows life without flooding a CI log.
+      if (total > 0 && received - lastReport >= total / 10) {
+        lastReport = received;
+        onProgress(`  ${Math.round((received / total) * 100)}%`);
+      }
+    }),
+    createWriteStream(dest),
+  );
+
+  // Catch a truncated body here rather than as an unreadable zip later.
+  if (expectedBytes > 0 && received !== expectedBytes) {
+    throw new Error(`expected ${expectedBytes} bytes, received ${received}`);
+  }
+}
+
+/** Retries transport failures; a 4xx is answered the same way every time, so it is not retried. */
+async function download(
+  url: string,
+  dest: string,
+  expectedBytes: number,
+  onProgress: (message: string) => void,
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await downloadOnce(url, dest, expectedBytes, onProgress);
+
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (attempt >= ATTEMPTS || /returned 4\d\d /.test(message)) {
+        throw new Error(`could not download ${url}: ${message}`, { cause: error });
+      }
+
+      onProgress(`  attempt ${attempt} failed (${message}); retrying`);
+      await delay(attempt * 2_000);
+    }
+  }
 }
 
 async function sha1Of(file: string): Promise<string> {
@@ -42,13 +138,7 @@ async function sha1Of(file: string): Promise<string> {
   return hash.digest('hex');
 }
 
-/**
- * Extracts a BDS zip.
- *
- * Deliberately does not trust entry names: a zip can name an entry `../../etc/passwd`, and while
- * Mojang's will not, the cost of checking is one comparison and the cost of not checking is
- * arbitrary file write.
- */
+/** Extracts a BDS zip, rejecting any entry whose path escapes `destDir`. */
 export async function extractZip(zipPath: string, destDir: string): Promise<void> {
   await fs.mkdir(destDir, { recursive: true });
   const resolvedDest = path.resolve(destDir);
@@ -88,6 +178,7 @@ export async function extractZip(zipPath: string, destDir: string): Promise<void
 }
 
 export interface FetchOptions {
+  /** An exact build; `latest` must already have been resolved against the index. */
   version: string;
   channel: Channel;
   platform: string;
@@ -96,13 +187,9 @@ export interface FetchOptions {
 }
 
 /**
- * Downloads and extracts a BDS build into `destDir`.
+ * Downloads and extracts a build into `destDir`, verifying it against the `sha1` from BDS-Versions.
  *
- * The URL and the expected `sha1` both come from BDS-Versions rather than being constructed here,
- * so a pinned version that does not exist fails while asking a community index — with the current
- * build named in the error — instead of as an opaque 404 from minecraft.net.
- *
- * Extraction goes to a sibling temp directory and is renamed into place at the end, so an
+ * Extraction goes to a sibling temp directory that is renamed into place at the end, so an
  * interrupted run cannot leave a half-extracted tree that later looks like a cache hit.
  */
 export async function fetchBds(options: FetchOptions): Promise<BdsBuild> {
@@ -120,7 +207,7 @@ export async function fetchBds(options: FetchOptions): Promise<BdsBuild> {
     const mb = (build.sizeInBytes / 1024 / 1024).toFixed(0);
 
     onProgress(`downloading ${build.downloadUrl} (${mb} MB, published ${build.date.slice(0, 10)})`);
-    await download(build.downloadUrl, zipPath);
+    await download(build.downloadUrl, zipPath, build.sizeInBytes, onProgress);
 
     const actual = await sha1Of(zipPath);
 
@@ -133,7 +220,7 @@ export async function fetchBds(options: FetchOptions): Promise<BdsBuild> {
       );
     }
 
-    onProgress(build.sha1 ? `sha1 verified against BDS-Versions` : `sha1 ${actual} (upstream published none)`);
+    onProgress(build.sha1 ? 'sha1 verified against BDS-Versions' : `sha1 ${actual} (upstream published none)`);
 
     const extracted = path.join(staging, 'extracted');
 

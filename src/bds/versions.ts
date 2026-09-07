@@ -1,19 +1,14 @@
 /**
- * Build metadata from [BDS-Versions](https://github.com/Bedrock-OSS/BDS-Versions).
- *
- * Mojang publishes no version index — only "here is the current build" — so knowing that a pinned
- * version exists, or what a build's checksum should be, previously meant either trusting whatever
- * downloaded first or scraping. BDS-Versions is a community-maintained index that records every
- * build with its `sha1`, size and date.
- *
- * **It hosts no binaries.** Its `cdn_root` is minecraft.net and every `download_url` points there,
- * so this does not make the server downloadable on a network that blocks minecraft.net — see
- * `BC_BDS_PATH` and `--offline` for that. What it changes is trust: the checksum now comes from a
- * third party *before* the first download, rather than being recorded from whatever arrived.
+ * Build metadata from [BDS-Versions](https://github.com/Bedrock-OSS/BDS-Versions): the download
+ * URL, size and `sha1` of every build, and which build each channel currently points at. The index
+ * hosts no binaries; every `download_url` points at minecraft.net.
  */
 import type { Channel } from './download';
 
 const RAW_ROOT = 'https://raw.githubusercontent.com/Bedrock-OSS/BDS-Versions/main';
+
+/** How long to wait on the index before giving up. Small JSON; slow means unreachable. */
+const INDEX_TIMEOUT_MS = 15_000;
 
 /** BDS-Versions names platforms differently from Node, and keeps preview builds in their own tree. */
 const PLATFORM_DIRS = new Map<string, string>([
@@ -29,11 +24,14 @@ const INDEX_KEYS = new Map<string, string>([
   ['linux-x64', 'linux'],
 ]);
 
+/** The pin value that means "whatever the channel currently points at". */
+export const LATEST = 'latest';
+
 export interface BdsBuild {
   version: string;
   downloadUrl: string;
 
-  /** Published by BDS-Versions, so integrity is checkable on the very first download. */
+  /** From BDS-Versions; the download is verified against it. */
   sha1: string;
   sizeInBytes: number;
   date: string;
@@ -47,7 +45,19 @@ export interface PlatformIndex {
 }
 
 async function fetchJson(url: string): Promise<Record<string, unknown>> {
-  const response = await fetch(url, { headers: { accept: 'application/json' } });
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(INDEX_TIMEOUT_MS),
+    });
+  } catch (cause) {
+    throw new Error(
+      `could not reach BDS-Versions at ${url}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  }
 
   if (!response.ok) { throw new Error(`GET ${url} returned ${response.status} ${response.statusText}`); }
 
@@ -80,12 +90,19 @@ export async function fetchIndex(platform: string): Promise<PlatformIndex> {
   };
 }
 
-/**
- * Metadata for one exact build.
- *
- * A missing file means the version does not exist upstream, which is worth saying precisely — a
- * typo in a pinned version otherwise surfaces as a bare 404 from a completely different host.
- */
+/** The build a channel currently points at. Throws when the index cannot be read. */
+export async function currentVersion(channel: Channel, platform: string): Promise<string> {
+  const index = await fetchIndex(platform);
+
+  return channel === 'preview' ? index.preview : index.stable;
+}
+
+/** Resolves `latest` against the index; an exact version is returned as is. */
+export async function resolveVersion(version: string, channel: Channel, platform: string): Promise<string> {
+  return version === LATEST ? await currentVersion(channel, platform) : version;
+}
+
+/** Metadata for one exact build. A version the index does not know fails with the current build named. */
 export async function fetchBuild(version: string, channel: Channel, platform: string): Promise<BdsBuild> {
   const dir = platformDir(channel, platform);
 
@@ -104,23 +121,18 @@ export async function fetchBuild(version: string, channel: Channel, platform: st
     throw new Error(`Bedrock Dedicated Server ${version} (${channel}, ${platform}) is not in BDS-Versions.${hint}`, { cause });
   }
 
+  const downloadUrl = String(raw.download_url ?? '');
+
+  if (!downloadUrl.startsWith('https://')) {
+    throw new Error(`BDS-Versions gave no usable download_url for ${version} (${channel}, ${platform})`);
+  }
+
   return {
     version: String(raw.version ?? version),
-    downloadUrl: String(raw.download_url),
+    downloadUrl,
     sha1: String(raw.sha1 ?? ''),
     sizeInBytes: Number(raw.size_in_bytes ?? 0),
     date: String(raw.date ?? ''),
     releaseNotes: raw.release_notes ? String(raw.release_notes) : undefined,
   };
-}
-
-/** The build a channel currently points at, or `null` when the index cannot be read. */
-export async function currentVersion(channel: Channel, platform: string): Promise<string | null> {
-  try {
-    const index = await fetchIndex(platform);
-
-    return channel === 'preview' ? index.preview : index.stable;
-  } catch {
-    return null;
-  }
 }

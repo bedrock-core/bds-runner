@@ -8,9 +8,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): string => readFileSync(path.join(here, 'fixtures', name), 'utf8');
 
 /**
- * Captured from a real BDS 1.26.43.1 run of `constructs-addon`'s 16 gametests, playerless. Every
- * expectation below is a fact about the engine, not about our code — which is the point of pinning
- * the parser to a transcript rather than to hand-written samples.
+ * Captured from a real BDS 1.26.43.1 run of 16 gametests, playerless. Every expectation below is a
+ * fact about the engine's output.
  */
 const RUNSET = fixture('bds-runset-1.26.43.1.log');
 const BOOT = fixture('bds-boot-experiments-1.26.43.1.log');
@@ -56,8 +55,8 @@ describe('report:parse', () => {
   });
 
   it('ignores everything before the last run announcement', () => {
-    // A console stream is append-only across every runset issued in a session. Results from an
-    // earlier run must not leak into a later one, or a deleted test haunts the output forever.
+    // The console is one stream across every runset in a session. Results from an earlier run must
+    // not leak into a later one.
     const stale = RUNSET.replace(/onTestPassed: (\S+)/g, 'onTestPassed: stale:$1');
     const report = parseReport(`${stale}\n${RUNSET}`);
 
@@ -93,8 +92,7 @@ describe('report:reconcile', () => {
   });
 
   it('treats a loaded-but-unreported test as a failure, never a pass', () => {
-    // The load-bearing rule. maxTicks timeouts, unattributed throws and crashes all land here, and
-    // every one of them must be red.
+    // maxTicks timeouts, unattributed throws and crashes all land here; every one is a failure.
     const truncated = RUNSET.replace(
       /onTestPassed: bc:constructs:m3:powered_bearing_drives_the_welded_rotor\n?/,
       '',
@@ -134,8 +132,7 @@ describe('report:summarise', () => {
   });
 
   it('reports a renamed-log-lines engine as an infrastructure error, not a pass', () => {
-    // The property that makes reading undocumented strings safe: if the engine stops speaking the
-    // language we parse, we must go red loudly rather than green quietly.
+    // If the engine renames these lines the result must be an infrastructure error, not a pass.
     const alien = RUNSET.replace(/onTest\w+:/g, 'somethingElse:')
       .replace(/Running 16 tests with tag '[^']*'/, '')
       .replace(/Running test batch '[^']*' \(16 tests\)/, '');

@@ -1,6 +1,26 @@
-export { bdsHome, cacheDir, logsDir, pinnedVersion, platformKey, serverDir } from './bds/paths';
+export {
+  bdsHome,
+  cacheDir,
+  CONFIG_FILE,
+  findConfig,
+  logsDir,
+  type PinnedVersion,
+  pinnedVersion,
+  platformKey,
+  projectRoot,
+  serverDir,
+  type VersionOverride,
+} from './bds/paths';
 export { type Channel, fetchBds } from './bds/download';
-export { type BdsBuild, currentVersion, fetchBuild, fetchIndex, type PlatformIndex } from './bds/versions';
+export {
+  type BdsBuild,
+  currentVersion,
+  fetchBuild,
+  fetchIndex,
+  LATEST,
+  type PlatformIndex,
+  resolveVersion,
+} from './bds/versions';
 export { type ResolvedBds, resolveBds } from './bds/resolve';
 export {
   type Outcome,

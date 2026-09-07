@@ -20,8 +20,10 @@
 			"url": "https://drav.dev"
 		}
 	],
-	"repository": "github:bedrock-core/server",
-	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bedrock-core/bds-runner.git"
+	},
 	"type": "module",
 	"types": "src/index.ts",
 	"exports": {
@@ -37,26 +39,43 @@
 	"files": [
 		"src/**/*",
 		"bin/**/*",
-		"bds-version.json"
+		"README.md"
 	],
 	"scripts": {
-		"build": "tsc -p tsconfig.json --noEmit",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"coverage": "vitest run --coverage",
+		"build": "tsc -p tsconfig.json --noEmit",
 		"lint": "eslint .",
 		"test": "vitest run",
-		"fetch": "node --import jiti/register src/cli.ts fetch",
-		"where": "node --import jiti/register src/cli.ts where"
+		"coverage": "vitest run --coverage",
+		"fetch": "node bin/bc-bds.mjs fetch",
+		"where": "node bin/bc-bds.mjs where"
 	},
 	"dependencies": {
+		"jiti": "^2.7.0",
 		"prismarine-nbt": "^2.7.0",
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@stylistic/eslint-plugin": "^5.10.0",
 		"@types/node": "^26.2.0",
 		"@types/yauzl": "^2.10.3",
-		"jiti": "^2.7.0",
+		"@vitest/coverage-v8": "^4.1.10",
+		"eslint": "^10.5.0",
 		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.62.0",
 		"vitest": "^4.1.10"
-	}
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"private": true,
+	"bugs": {
+		"url": "https://github.com/bedrock-core/bds-runner/issues"
+	},
+	"homepage": "https://github.com/bedrock-core/bds-runner#readme",
+	"packageManager": "yarn@4.18.0"
 }

@@ -29,12 +29,8 @@ export interface BdsServerOptions {
 }
 
 /**
- * Owns a `bedrock_server` process: its stdin, its output, and its death.
- *
- * The output is consumed through a pipe rather than a shell redirect. That is not a style choice —
- * redirecting means nothing can react to a line as it arrives, so waiting for "Server started."
- * or for a run to go quiet becomes impossible, and a hung server can only be discovered by wall
- * clock.
+ * Owns a `bedrock_server` process: its stdin, its output, and its death. Output is read through a
+ * pipe so the runner can react to each line as it arrives.
  */
 export class BdsServer {
   readonly #options: BdsServerOptions;
@@ -49,6 +45,15 @@ export class BdsServer {
   #disposed = false;
   #lastLineAt = 0;
   #cleanup?: () => void;
+
+  /**
+   * What Ctrl+C means while the server is up.
+   *
+   * During a test run a signal kills the server outright, so the runner can report what it has and
+   * exit. While the server is being held open for a person to look at, the first signal asks it to
+   * save and stop instead; the next one kills it.
+   */
+  stopGracefullyOnSignal = false;
 
   constructor(options: BdsServerOptions) {
     this.#options = options;
@@ -106,29 +111,51 @@ export class BdsServer {
     });
     this.#child.once('error', error => this.#events.emit('failure', error));
 
-    // A server that outlives the runner holds the world lock and the port, so the *next* run fails
-    // for a reason that has nothing to do with the tests — and on Windows it sits there eating
-    // 200 MB until someone notices.
-    //
-    // This kill is deliberately synchronous. Signal and `exit` handlers get no chance to await, so
-    // asking politely (writing `stop` to stdin and waiting) is exactly what does not work here: the
-    // runner is gone before the server acts on it. The graceful path lives in `stop()`, which the
-    // normal flow always reaches; this is only for the abrupt ones.
-    const cleanup = (): void => {
+    // A server that outlives the runner holds the world lock and the port. Signal and `exit`
+    // handlers cannot await, so this path kills synchronously; the graceful path is `stop()`.
+    const kill = (): void => {
       if (this.#child && !this.#exited) { this.#child.kill('SIGKILL'); }
     };
 
-    process.once('SIGINT', cleanup);
-    process.once('SIGTERM', cleanup);
-    process.once('SIGHUP', cleanup);
-    process.once('exit', cleanup);
+    // A signal is handled once, then re-armed. While `stopGracefullyOnSignal` is set the first
+    // signal sends `stop` and flips the flag, so a second Ctrl+C from someone who does not want to
+    // wait for the world to save goes through `kill`. A third falls through to Node's default and
+    // ends the runner, at which point the `exit` handler kills the server.
+    const onSignal = (): void => {
+      if (this.stopGracefullyOnSignal && this.#child && !this.#exited) {
+        this.stopGracefullyOnSignal = false;
+        process.stdout.write('\n  stopping the server (Ctrl+C again to kill it)\n');
+        this.#child.stdin.write('stop\n');
+        arm();
+
+        return;
+      }
+
+      kill();
+    };
+
+    const arm = (): void => {
+      process.once('SIGINT', onSignal);
+      process.once('SIGTERM', onSignal);
+      process.once('SIGHUP', onSignal);
+    };
+
+    arm();
+    process.once('exit', kill);
 
     this.#cleanup = (): void => {
-      process.off('SIGINT', cleanup);
-      process.off('SIGTERM', cleanup);
-      process.off('SIGHUP', cleanup);
-      process.off('exit', cleanup);
+      process.off('SIGINT', onSignal);
+      process.off('SIGTERM', onSignal);
+      process.off('SIGHUP', onSignal);
+      process.off('exit', kill);
     };
+  }
+
+  /** Resolves once the server process has ended, however that happened. */
+  waitForExit(): Promise<void> {
+    if (this.#exited) { return Promise.resolve(); }
+
+    return new Promise(resolve => this.#events.once('exit', () => resolve()));
   }
 
   #onLine(line: string): void {

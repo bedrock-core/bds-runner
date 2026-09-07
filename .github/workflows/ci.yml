@@ -1,0 +1,40 @@
+# Lint, typecheck and unit-test the runner itself.
+#
+# These never boot a Bedrock Dedicated Server: the suites here cover console parsing and pack
+# discovery against committed fixtures, so they need no 200 MB download and run on every push.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Corepack installs the exact Yarn named in package.json's `packageManager`, so CI and every
+      # developer run the same release without pinning it a second time here.
+      - run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - run: yarn install --immutable
+
+      - run: yarn lint
+
+      - run: yarn typecheck
+
+      - run: yarn test

@@ -1,8 +1,5 @@
 #!/usr/bin/env node
-/**
- * Thin launcher: the package ships TypeScript sources with no build step, matching the rest of the
- * monorepo, so the CLI is loaded through jiti rather than compiled ahead of time.
- */
+/** The package ships TypeScript sources; the CLI loads them through jiti. */
 import { createJiti } from 'jiti';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

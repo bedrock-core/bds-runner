@@ -34,13 +34,7 @@ export interface FormatOptions {
   knownFailures?: string[];
 }
 
-/**
- * Shows the console lines surrounding a failing test.
- *
- * A gametest failure message says what the assertion was, never what led to it — but the pack's own
- * logging usually does, and it is sitting right there in the transcript. Finding it by hand in a
- * 4000-line server log is exactly the chore worth automating.
- */
+/** Shows the console lines around a failing test; the pack's own logging usually says what led to it. */
 function contextFor(transcript: string, id: string, radius = 6): string[] {
   const lines = transcript.split(/\r?\n/);
   const at = lines.findIndex(line => line.includes(id) && /onTestFailed/.test(line));

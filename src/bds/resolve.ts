@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fetchBds } from './download';
 import { cacheDir, pinnedVersion, platformKey, serverExecutable } from './paths';
+import { LATEST, resolveVersion } from './versions';
 
 export interface ResolvedBds {
   dir: string;
@@ -20,11 +21,8 @@ async function exists(target: string): Promise<boolean> {
 }
 
 /**
- * Serialises concurrent resolves against one cache directory.
- *
- * Two `test:mc` invocations extracting the same 200 MB tree into the same path would interleave and
- * leave a corrupt server. An exclusive-create lock file is enough; a stale one (a killed process
- * never cleans up) is broken after ten minutes rather than deadlocking the run forever.
+ * Serialises concurrent resolves against one cache directory, so two runs cannot interleave their
+ * extraction. A lock older than ten minutes is treated as abandoned.
  */
 async function withLock<T>(lockPath: string, work: () => Promise<T>): Promise<T> {
   const staleAfterMs = 10 * 60_000;
@@ -61,23 +59,22 @@ export interface ResolveOptions {
 
   /** Fail instead of downloading. Used by callers that must not touch the network. */
   offline?: boolean;
+
+  /** Run against a build other than the one in `bds-version.json`, just for this run. */
+  version?: string;
+  channel?: 'stable' | 'preview';
 }
 
 /**
- * Finds a Bedrock Dedicated Server to run, in order of decreasing authority:
+ * Finds a server to run: `BC_BDS_PATH`, else the cache, else a download.
  *
- * 1. `BC_BDS_PATH` — a server the developer manages. Never validated beyond "the binary is there",
- *    because second-guessing an explicit override helps nobody.
- * 2. the extracted cache for the pinned version;
- * 3. a fresh download.
- *
- * The override matters more than it looks: `www.minecraft.net` is unreachable from some networks
- * (it resolves but never connects), so on those machines the cache has to be primed by hand and
- * downloading is a CI-only path.
+ * `latest` is resolved against BDS-Versions before the cache is consulted, so the cache answers for
+ * the build that is current now.
  */
 export async function resolveBds(options: ResolveOptions = {}): Promise<ResolvedBds> {
   const { onProgress = (): void => {}, offline = false } = options;
-  const { version, channel } = pinnedVersion();
+  const pinned = pinnedVersion({ version: options.version, channel: options.channel });
+  const { channel } = pinned;
   const platform = platformKey();
 
   if (process.env.BC_BDS_PATH) {
@@ -96,6 +93,18 @@ export async function resolveBds(options: ResolveOptions = {}): Promise<Resolved
     return { dir, version: 'unknown (BC_BDS_PATH)', source: 'env' };
   }
 
+  if (pinned.version === LATEST && offline) {
+    throw new Error(
+      'the pinned version is "latest", which has to be looked up in BDS-Versions, and downloading '
+      + 'is disabled. Pass --bds-version, set an exact "version" in bds-version.json, or set '
+      + 'BC_BDS_PATH to a server you already have.',
+    );
+  }
+
+  const version = await resolveVersion(pinned.version, channel, platform);
+
+  if (pinned.version === LATEST) { onProgress(`latest ${channel} build is ${version}`); }
+
   const dir = cacheDir(version, platform);
 
   if (await exists(path.join(dir, serverExecutable()))) {
@@ -105,7 +114,7 @@ export async function resolveBds(options: ResolveOptions = {}): Promise<Resolved
   if (offline) {
     throw new Error(
       `Bedrock Dedicated Server ${version} is not in the cache at ${dir} and downloading is disabled. `
-      + 'Run `yarn bds:fetch`, or set BC_BDS_PATH to a server you already have.',
+      + 'Run `bc-bds fetch`, or set BC_BDS_PATH to a server you already have.',
     );
   }
 

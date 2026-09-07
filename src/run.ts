@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { logsDir, pinnedVersion } from './bds/paths';
+import { createInterface } from 'node:readline';
+import { logsDir } from './bds/paths';
 import { resolveBds } from './bds/resolve';
 import { parseReport, type Summary, summarise } from './report/parse';
 import { deployPacks, discoverPacks } from './server/packs';
@@ -9,12 +10,7 @@ import { enableBetaApis, writeWorldPackReferences } from './server/world';
 
 export interface RunOptions {
 
-  /**
-   * Directories holding `BP/` and `RP/`, as exported by a Regolith `exact` profile.
-   *
-   * More than one deploys several addons into the same world, which is the only way a cross-addon
-   * test — one that asserts a *different* pack is present — can pass.
-   */
+  /** Build directories holding `BP/` and `RP/`, or single packs. More than one installs several addons into the same world. */
   packsDirs: string | readonly string[];
 
   /** The gametest tag to run, e.g. `bc:constructs:m3`. */
@@ -35,6 +31,23 @@ export interface RunOptions {
   fresh?: boolean;
   echo?: boolean;
   offline?: boolean;
+
+  /** Run against a build other than the one in `bds-version.json`, just for this run. */
+  bdsVersion?: string;
+  bdsChannel?: 'stable' | 'preview';
+
+  /**
+   * After the verdicts are in, keep the server running so a person can connect and look at the
+   * test plots. The terminal is forwarded to the server console; `stop` or Ctrl+C ends it, and the
+   * world is wiped once the server is down.
+   */
+  keepAlive?: boolean;
+
+  /**
+   * Called as soon as the verdicts are in, before the server is stopped. With `keepAlive` this is
+   * where the summary is shown, so the person about to connect knows what they are looking at.
+   */
+  onResult?: (result: RunResult) => void;
   onProgress?: (message: string) => void;
 }
 
@@ -71,25 +84,7 @@ function timestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
-/**
- * Runs a gametest suite on a real Bedrock Dedicated Server and reports what happened.
- *
- * The shape of the run comes from what the engine actually does, established by running it:
- *
- *  - the server must be told to keep the test area loaded, because a world with no player connected
- *    does not tick chunks, and a suite full of redstone and physics would sit still and time out;
- *  - `runset` is issued through `execute … positioned` so the plots land somewhere known rather
- *    than wherever the command origin happens to be;
- *  - there is no "run finished" line to wait for, so the run ends when every announced test has a
- *    verdict, or the server goes quiet, or the wall clock runs out.
- */
-/**
- * Drops keys whose value is `undefined`, so spreading the result cannot erase a default.
- *
- * The CLI builds its options object with a key for every flag it knows about, so an unsupplied
- * `--origin` arrives as `origin: undefined`. A plain spread would let that overwrite the default,
- * and the symptom is a server command containing the literal text `undefined`.
- */
+/** Drops `undefined` values, so an unsupplied CLI flag cannot overwrite a default when spread. */
 function definedOnly<T extends object>(source: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(source).filter(([, value]) => value !== undefined),
@@ -105,8 +100,15 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
 
   onProgress(`packs: ${packs.map(p => `${p.name} (${p.kind}, ${p.slug})`).join(', ')}`);
 
-  const bds = await resolveBds({ onProgress, offline: settings.offline });
-  const version = bds.source === 'env' ? bds.version : pinnedVersion().version;
+  // `resolveBds` reports the build it actually settled on, which is not the pin when that is
+  // `latest` or when BC_BDS_PATH supplied the server.
+  const bds = await resolveBds({
+    onProgress,
+    offline: settings.offline,
+    version: settings.bdsVersion,
+    channel: settings.bdsChannel,
+  });
+  const version = bds.version;
 
   const { worldDir, created } = await provisionServer({
     cacheDir: bds.dir,
@@ -114,6 +116,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
     levelName: settings.levelName,
     port: settings.port,
     watchdogHangMs: settings.watchdogHangMs,
+    lanVisible: settings.keepAlive,
     fresh: settings.fresh,
     onProgress,
   });
@@ -172,11 +175,37 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
     server.send(`execute in overworld positioned ${settings.origin} run gametest runset ${settings.tag}`);
 
     await waitForRun(server, settings.idleMs, settings.wallMs, settings.expectRegistered);
+
+    // The verdicts are fixed here, before anything a person does in the held-open world can add
+    // to the transcript. Duration measures the tests, not how long someone spent looking at them.
+    const result = buildResult(server.transcript, settings, logFile, version, Date.now() - started);
+
+    settings.onResult?.(result);
+
+    if (settings.keepAlive && !server.exited) {
+      await holdForInspection(server, settings.port, onProgress);
+    }
+
+    return result;
   } finally {
     await server.dispose();
-  }
 
-  const summary = summarise(parseReport(server.transcript));
+    // The plots stay while someone is looking; once the server is down the world is wiped.
+    if (settings.keepAlive) {
+      await resetWorldChunks(worldDir);
+      onProgress('world reset');
+    }
+  }
+}
+
+function buildResult(
+  transcript: string,
+  settings: RunOptions & typeof DEFAULTS,
+  logFile: string,
+  bdsVersion: string,
+  durationMs: number,
+): RunResult {
+  const summary = summarise(parseReport(transcript));
   const knownFailures = settings.knownFailures ?? [];
   const regressions = summary.verdicts
     .filter(v => v.outcome !== 'pass' && !knownFailures.includes(v.id))
@@ -189,23 +218,62 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
         + 'A suite was probably added, removed, or failed to register.';
   }
 
-  return {
-    summary,
-    transcript: server.transcript,
-    logFile,
-    durationMs: Date.now() - started,
-    bdsVersion: version,
-    regressions,
-  };
+  return { summary, transcript, logFile, durationMs, bdsVersion, regressions };
 }
 
 /**
- * Waits for the run to finish.
+ * Keeps the server up until it is told to stop, with the terminal wired to its console.
  *
- * "Finished" is a judgement, not an event: the engine announces how many tests it will run and then
- * reports each one, but prints nothing at the end. So the run is over once every announced test has
- * a verdict — and if that never happens, the server going quiet is the fallback, with the wall clock
- * behind that. All three exits are normal; the verdict table decides pass or fail, not this.
+ * Anything typed is sent to the server as a command. Ctrl+C asks the server to stop. End of input
+ * on stdin, as in a CI job, also stops it.
+ */
+async function holdForInspection(
+  server: BdsServer,
+  port: number,
+  onProgress: (message: string) => void,
+): Promise<void> {
+  server.stopGracefullyOnSignal = true;
+
+  onProgress(`server kept running for inspection: connect to 127.0.0.1:${port}`);
+  onProgress('type a server command here; `stop` or Ctrl+C ends the session');
+
+  if (process.platform === 'win32') {
+    // The Windows Minecraft app is a UWP package, and UWP packages cannot open loopback connections
+    // until the package is exempted. One-time, needs an elevated prompt.
+    onProgress('Windows: if the client cannot connect to localhost, run once as administrator:');
+    onProgress('  CheckNetIsolation LoopbackExempt -a -n=Microsoft.MinecraftUWP_8wekyb3d8bbwe');
+  }
+
+  const rl = createInterface({ input: process.stdin });
+
+  const forward = (line: string): void => {
+    const command = line.trim();
+
+    if (!command) { return; }
+
+    try {
+      server.send(command);
+    } catch {
+      // The server is already gone; the wait below is about to resolve.
+    }
+  };
+
+  const onEnd = (): void => forward('stop');
+
+  rl.on('line', forward);
+  rl.once('close', onEnd);
+
+  try {
+    await server.waitForExit();
+  } finally {
+    rl.off('close', onEnd);
+    rl.close();
+  }
+}
+
+/**
+ * Waits for the run to finish: every announced test has a verdict, or the server has gone quiet,
+ * or the wall clock ran out. The engine prints nothing when a run ends.
  */
 async function waitForRun(
   server: BdsServer,
@@ -228,9 +296,8 @@ async function waitForRun(
 
     if (Date.now() >= deadline) { return; }
 
-    // Silence ends the run whether or not anything was accounted for. Waiting longer because we
-    // *expected* results is exactly backwards: a run that produced nothing has already failed, and
-    // making it burn the full wall clock turns a fast, clear failure into a slow, confusing one.
+    // Silence ends the run whether or not anything was accounted for; a run that produced nothing
+    // has already failed.
     if (server.idleMs >= idleMs) { return; }
 
     await new Promise(resolve => setTimeout(resolve, 500));

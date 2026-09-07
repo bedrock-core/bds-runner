@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# npm is not this repo's package manager; Yarn is pinned in packageManager.
+package-lock.json
+
+# Build outputs
+dist
+*.tsbuildinfo
+
+# Testing
+coverage
+
+# BDS runner working directory: binary cache, server tree, run logs
+.bds/
+
+# Local scratch
+TODO
+*.local
+.DS_Store

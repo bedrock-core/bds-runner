@@ -13,9 +13,8 @@ import nbt from 'prismarine-nbt';
  * little-endian NBT — verified on BDS 1.26.43.1, where a freshly generated world reads
  * `0a000000 b90b0000` for a 3001-byte body.
  *
- * A generated world already *has* an `experiments` compound holding `experiments_ever_used` and
- * `saved_with_toggled_experiments` at 0, so the bootstrap adds the toggle rather than inventing the
- * structure.
+ * A generated world already has an `experiments` compound holding `experiments_ever_used` and
+ * `saved_with_toggled_experiments` at 0; the toggle is added to it.
  */
 
 /** The NBT key for the "Beta APIs" toggle. The game abbreviates it to `gtst` in its boot log. */
@@ -78,14 +77,11 @@ function activeExperiments(root: NbtCompound): string[] {
 }
 
 /**
- * Turns Beta APIs (and a flat generator) on in a world BDS has already generated.
+ * Turns Beta APIs and a flat generator on in a world BDS has already generated. Returns
+ * `changed: false` when they are already set.
  *
- * Returns `changed: false` when the world is already set up, which is the normal case after the
- * first run — the server tree is reused across runs precisely so this happens once per BDS version.
- *
- * The write is verified by reading the file back. It is not a belt-and-braces flourish: a silently
- * failed write shows up later as `Unknown command: gametest`, which reads like a completely
- * different problem and has cost people hours.
+ * The write is read back to verify it; a failed write otherwise surfaces much later as
+ * `Unknown command: gametest`.
  */
 export async function enableBetaApis(worldDir: string): Promise<BootstrapResult> {
   const file = path.join(worldDir, 'level.dat');

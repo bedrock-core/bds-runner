@@ -1,34 +1,60 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+/** Marks the consumer's project root when no config file is committed. */
+const PROJECT_MARKERS = ['package.json', '.git'];
 
-/** `packages/bds-runner` — the package root, wherever it has been installed or copied to. */
-export const packageRoot = path.resolve(here, '..', '..');
+/** The config file a project may commit to fix the engine its tests run on. */
+export const CONFIG_FILE = 'bds-version.json';
+
+/** Used when no flag, environment variable or config file names a build. */
+const DEFAULTS: PinnedVersion = { version: 'latest', channel: 'stable' };
+
+function findUp(name: string, from: string): string | undefined {
+  let dir = path.resolve(from);
+
+  for (;;) {
+    if (existsSync(path.join(dir, name))) { return dir; }
+
+    const parent = path.dirname(dir);
+
+    if (parent === dir) { return undefined; }
+
+    dir = parent;
+  }
+}
 
 /**
- * The monorepo root. Everything the runner writes lives under it in one gitignored directory, so a
- * developer can reclaim ~1 GB by deleting a single folder and knows exactly what to delete.
+ * Where the server cache and logs go: the directory holding the nearest config file, else the
+ * nearest `package.json` or `.git`, else the working directory.
  */
-export const repoRoot = path.resolve(packageRoot, '..', '..');
+export function projectRoot(from: string = process.cwd()): string {
+  const config = findConfig(from);
 
-/** `<repo>/.bds` unless `BC_BDS_HOME` says otherwise (CI caches, or a drive with room). */
+  if (config) { return path.dirname(config); }
+
+  for (const marker of PROJECT_MARKERS) {
+    const found = findUp(marker, from);
+
+    if (found) { return found; }
+  }
+
+  return path.resolve(from);
+}
+
+/** `<project>/.bds` unless `BC_BDS_HOME` says otherwise (CI caches, or a drive with room). */
 export function bdsHome(): string {
   return process.env.BC_BDS_HOME
     ? path.resolve(process.env.BC_BDS_HOME)
-    : path.join(repoRoot, '.bds');
+    : path.join(projectRoot(), '.bds');
 }
 
-/** Extracted, pristine BDS trees, one per version+platform. Never run from here — see `serverDir`. */
+/** Extracted server builds, one per version and platform. Runs use a copy; see `serverDir`. */
 export function cacheDir(version: string, platform = platformKey()): string {
   return path.join(bdsHome(), 'cache', version, platform);
 }
 
-/**
- * The tree BDS actually runs in: a copy of the cache, kept across runs so the ~200 MB copy and the
- * world bootstrap happen once per version rather than once per run.
- */
+/** The tree the server runs in: a copy of the cache, kept across runs of the same version. */
 export function serverDir(version: string): string {
   return path.join(bdsHome(), 'server', version);
 }
@@ -53,24 +79,72 @@ export function serverExecutable(): string {
 }
 
 export interface PinnedVersion {
+  /** An exact build, or `latest` to take whatever the channel currently points at. */
   version: string;
+
+  /** Which BDS-Versions tree the build is looked up in. */
   channel: 'stable' | 'preview';
-  note?: string;
 }
 
-/**
- * The pinned build. `BC_BDS_VERSION` overrides it for a one-off check against another engine.
- *
- * No checksum is recorded here: BDS-Versions publishes the `sha1` for every build, so the expected
- * value is fetched alongside the download URL rather than being copied into this repo and going
- * stale.
- */
-export function pinnedVersion(): PinnedVersion {
-  const pinned = JSON.parse(
-    readFileSync(path.join(packageRoot, 'bds-version.json'), 'utf8'),
-  ) as PinnedVersion;
+/** Overrides for a single run, from a CLI flag. Both accept the same values as the config file. */
+export interface VersionOverride {
+  version?: string;
+  channel?: 'stable' | 'preview';
+  configPath?: string;
+}
 
-  return process.env.BC_BDS_VERSION
-    ? { ...pinned, version: process.env.BC_BDS_VERSION }
-    : pinned;
+function asChannel(raw: unknown, source: string): 'stable' | 'preview' | undefined {
+  if (raw === undefined || raw === null) { return undefined; }
+
+  if (raw !== 'stable' && raw !== 'preview') {
+    throw new Error(`${source} must be "stable" or "preview", got ${JSON.stringify(raw)}`);
+  }
+
+  return raw;
+}
+
+/** The config file nearest the working directory, or `undefined` when the project commits none. */
+export function findConfig(from: string = process.cwd()): string | undefined {
+  const dir = findUp(CONFIG_FILE, from);
+
+  return dir ? path.join(dir, CONFIG_FILE) : undefined;
+}
+
+function readConfig(file: string): Partial<PinnedVersion> {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (cause) {
+    throw new Error(`${file} is not valid JSON`, { cause });
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`${file} must contain a JSON object`);
+  }
+
+  const { version, channel } = parsed as Record<string, unknown>;
+
+  if (version !== undefined && typeof version !== 'string') {
+    throw new Error(`${file}: "version" must be a string`);
+  }
+
+  return { version, channel: asChannel(channel, `${file}: "channel"`) };
+}
+
+/** Which build to run: CLI flag, then environment, then the nearest config file, then `latest` stable. */
+export function pinnedVersion(override: VersionOverride = {}): PinnedVersion {
+  const file = override.configPath ?? findConfig();
+  const config = file ? readConfig(file) : {};
+
+  return {
+    version: override.version
+      ?? process.env.BC_BDS_VERSION
+      ?? config.version
+      ?? DEFAULTS.version,
+    channel: override.channel
+      ?? asChannel(process.env.BC_BDS_CHANNEL, 'BC_BDS_CHANNEL')
+      ?? config.channel
+      ?? DEFAULTS.channel,
+  };
 }

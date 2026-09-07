@@ -10,14 +10,7 @@ export interface PackInfo {
   dir: string;
   kind: 'behavior' | 'resource';
 
-  /**
-   * The directory name this pack is deployed under inside the world.
-   *
-   * Every Regolith `exact` export is called `BP/` and `RP/`, so a run covering more than one addon
-   * has colliding basenames and the second copy silently replaces the first. The slug names the
-   * addon the pack came from instead, which keeps the world's pack folders unique and keeps the
-   * server's own pack-stack log readable.
-   */
+  /** The directory this pack is deployed under inside the world, named after its addon so two `BP/` exports do not collide. */
   slug: string;
 }
 
@@ -100,13 +93,9 @@ async function discoverRoot(root: string, label: string): Promise<PackInfo[]> {
 }
 
 /**
- * Finds the behaviour and resource packs inside one or more build directories.
- *
- * Accepts the `BP/` + `RP/` layout Regolith exports, and also a directory that is itself a single
- * pack, so a root can point at either without the caller having to know which.
- *
- * More than one root is the cross-addon case: a test that asserts another addon is present can only
- * pass when both are installed in the same world, so both builds have to be deployed together.
+ * Finds the behaviour and resource packs under one or more build roots. A root is either the
+ * `BP/` + `RP/` layout or a single pack. More than one root installs several addons into the same
+ * world.
  */
 export async function discoverPacks(packsDirs: string | readonly string[]): Promise<PackInfo[]> {
   const roots = (typeof packsDirs === 'string' ? [packsDirs] : [...packsDirs]).map(dir => path.resolve(dir));
@@ -149,12 +138,9 @@ export async function discoverPacks(packsDirs: string | readonly string[]): Prom
 }
 
 /**
- * Copies packs into the world.
- *
- * World-local packs take precedence over the server's top-level `behavior_packs/`, which keeps each
- * run self-contained: no state leaks between runs of different addons on the same server tree.
- * Existing copies are removed first so a deleted file in the build cannot survive as a stale
- * leftover.
+ * Copies packs into the world's own `behavior_packs/` and `resource_packs/`, which take precedence
+ * over the server-level folders. Existing copies are removed first so a deleted file cannot survive
+ * as a leftover.
  */
 export async function deployPacks(worldDir: string, packs: PackInfo[]): Promise<void> {
   for (const kind of ['behavior', 'resource'] as const) {

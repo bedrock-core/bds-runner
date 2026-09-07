@@ -11,18 +11,13 @@
  * onTestFailed: bc:constructs:m3:lever_on_live_construct_toggles_thruster - GameTestError: powered thruster must lift the construct (v.y=-3.53)
  * ```
  *
- * Two properties make reading it sound even though Mojang documents none of these strings:
+ * Mojang documents none of these strings. Two rules keep that safe: the expected count and the
+ * verdicts come from the same lines, so a format change breaks both at once; and anything
+ * announced but unaccounted for is a failure. An engine that renames these lines therefore
+ * produces an infrastructure error, never a false pass.
  *
- *  - the **expected count and the verdicts come from the same channel**, so a format change breaks
- *    both at once rather than one of them;
- *  - **anything announced but unaccounted for is a failure**, never a pass.
- *
- * Together those mean a future engine that renames these lines produces a loud "0 of N accounted"
- * infrastructure error. The failure mode is a red build, never a false green — which is the only
- * property that actually matters when the strings are a private interface.
- *
- * There is deliberately no completion line to wait for: the engine prints nothing when a run ends,
- * so completion is `accounted === expected` plus the idle/wall timeouts in the caller.
+ * The engine prints nothing when a run ends. A run is complete when `accounted === expected`; the
+ * caller adds idle and wall-clock timeouts behind that.
  */
 
 /** Announced expectation: `Running 16 tests with tag 'bc:constructs:m3'...` */
@@ -47,10 +42,8 @@ const NO_TESTS_RE = /No tests found for tag\s+'([^']*)'/;
 const EXPERIMENTS_RE = /Experiment\(s\) active:\s*(.+?)\s*$/;
 
 /**
- * A run is bounded by the batch/expected announcement. BDS appends to one console stream across
- * every `runset` issued in a session, so without anchoring to the *last* announcement a second run
- * would inherit the first one's verdicts — and a renamed or deleted test would haunt the results
- * forever. Everything before the last announcement belongs to a previous run.
+ * A run starts at its batch/expected announcement. The console is one stream across every `runset`
+ * in a session, so parsing anchors on the last announcement and ignores everything before it.
  */
 export const RUN_ANCHOR_RE = new RegExp(`${BATCH_RE.source}|${EXPECTED_RE.source}`);
 
@@ -93,16 +86,14 @@ const EMPTY: Report = {
 /**
  * Reads a transcript into a `Report`, considering only the most recent run.
  *
- * Lines are matched *anywhere* in the string rather than anchored: BDS prefixes some output with
- * `[YYYY-MM-DD HH:MM:SS:mmm INFO] ` and leaves the `onTest*` lines bare, and script output arrives
- * as `HH:MM:SS-[Scripting][Warning]-`. Matching loosely costs nothing and survives that
- * inconsistency.
+ * Patterns match anywhere in a line: BDS prefixes some output with `[YYYY-MM-DD HH:MM:SS:mmm INFO] `
+ * and leaves the `onTest*` lines bare.
  */
 export function parseReport(text: string): Report {
   const lines = text.split(/\r?\n/);
 
-  // Experiments are announced during boot, i.e. *before* the run anchor, so collect them first
-  // across the whole transcript.
+  // Experiments are announced at boot, before the run anchor, so they are collected from the whole
+  // transcript.
   const experiments: string[] = [];
 
   for (const line of lines) {
@@ -111,13 +102,9 @@ export function parseReport(text: string): Report {
     if (m) { experiments.push(...m[1].split(/[,\s]+/).filter(Boolean)); }
   }
 
-  // Anchor on the last run announcement; everything before it belongs to a previous run.
-  //
-  // The engine announces a run as a *cluster* — one `Running test batch …` line per batch, then the
-  // `Running N tests with tag …` census — so anchoring on the census alone would slice the batch
-  // lines off the front of the very run they describe. Find the census, then walk back over the
-  // announcement lines (and the blanks between them) that belong to it. The walk stops at the first
-  // line that is neither, which in a multi-run stream is the previous run's last verdict.
+  // Anchor on the last run announcement. The engine announces a run as one `Running test batch …`
+  // line per batch followed by the `Running N tests with tag …` census, so find the census and walk
+  // back over the batch lines and blanks that belong to it.
   let start = 0;
 
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -190,10 +177,8 @@ export function parseReport(text: string): Report {
 /**
  * Turns a `Report` into one verdict per test.
  *
- * The engine names every test it loads, so `loaded` is the roster. A test that was loaded but has
- * no verdict did not quietly pass — it hit `maxTicks`, threw where the engine could not attribute
- * it, or took the server down with it — so it is a **failure**, not a gap in our knowledge. That
- * inference is the single load-bearing rule here.
+ * `loaded` is the roster. A loaded test with no verdict hit `maxTicks`, threw where the engine could
+ * not attribute it, or took the server down; it is reported as a failure.
  */
 export function reconcile(report: Report): Verdict[] {
   const verdicts: Verdict[] = [];
@@ -213,8 +198,7 @@ export function reconcile(report: Report): Verdict[] {
     }
   }
 
-  // A verdict for something never announced as loaded still counts — losing it would be worse than
-  // the inconsistency it represents.
+  // A verdict for a test never announced as loaded is still counted.
   for (const id of [...report.passed, ...failedById.keys()]) {
     if (report.loaded.includes(id)) { continue; }
 
@@ -225,8 +209,8 @@ export function reconcile(report: Report): Verdict[] {
     );
   }
 
-  // Announced but never even loaded: the plot never got placed. Distinct from a failure because the
-  // cause is structural (missing .mcstructure, tag mismatch), and the message should say so.
+  // Announced but never loaded: the plot was never placed. Reported as absent rather than failed
+  // because the cause is structural (missing .mcstructure, tag mismatch).
   const shortfall = (report.expected ?? 0) - verdicts.length;
 
   for (let i = 0; i < shortfall; i++) {

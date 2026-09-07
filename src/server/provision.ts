@@ -3,13 +3,7 @@ import path from 'node:path';
 import { serverDir as serverDirFor, serverExecutable } from '../bds/paths';
 import { renderServerProperties } from './properties';
 
-/**
- * Modules the world's scripts are permitted to import.
- *
- * BDS ships a `config/default/permissions.json` that already allows `@minecraft/server-gametest`,
- * but writing our own makes the run independent of what a given build happens to default to, and
- * documents the surface the tests are allowed to touch.
- */
+/** Modules the world's scripts may import. Written explicitly so the run does not depend on a build's default `permissions.json`. */
 const ALLOWED_MODULES = [
   '@minecraft/server',
   '@minecraft/server-gametest',
@@ -23,6 +17,9 @@ export interface ProvisionOptions {
   levelName: string;
   port: number;
   watchdogHangMs: number;
+
+  /** Advertise on the LAN, for a server that will be held open for someone to join. */
+  lanVisible?: boolean;
 
   /** Delete the whole server tree first, forcing a fresh copy and a fresh world bootstrap. */
   fresh?: boolean;
@@ -42,17 +39,12 @@ async function exists(target: string): Promise<boolean> {
 }
 
 /**
- * Prepares the directory BDS runs in.
- *
- * The tree is a **copy** of the cache, kept between runs. Copying ~200 MB per run would dominate the
- * runtime, and symlinking is not an option on Windows without developer mode or elevation. Keeping
- * it also means the world bootstrap (which costs a full boot/stop cycle) happens once per BDS
- * version rather than once per run.
- *
- * The *world* is not preserved wholesale — see `resetWorldChunks`.
+ * Prepares the directory BDS runs in: a copy of the cache, kept between runs so the copy and the
+ * world bootstrap happen once per version. Symlinks need elevation on Windows, so it is a copy.
+ * The world is reset separately; see `resetWorldChunks`.
  */
 export async function provisionServer(options: ProvisionOptions): Promise<ProvisionResult> {
-  const { cacheDir, version, levelName, port, watchdogHangMs, fresh = false } = options;
+  const { cacheDir, version, levelName, port, watchdogHangMs, lanVisible = false, fresh = false } = options;
   const onProgress = options.onProgress ?? ((): void => {});
 
   const dir = serverDirFor(version);
@@ -74,7 +66,7 @@ export async function provisionServer(options: ProvisionOptions): Promise<Provis
 
   await fs.writeFile(
     path.join(dir, 'server.properties'),
-    renderServerProperties({ levelName, port, portV6: port + 1, watchdogHangMs }),
+    renderServerProperties({ levelName, port, portV6: port + 1, watchdogHangMs, lanVisible }),
   );
 
   await fs.mkdir(path.join(dir, 'config', 'default'), { recursive: true });
@@ -87,12 +79,8 @@ export async function provisionServer(options: ProvisionOptions): Promise<Provis
 }
 
 /**
- * Throws away the world's chunks while keeping `level.dat`.
- *
- * Each run must start from unmodified terrain — a gametest that leaves blocks behind would
- * otherwise change what the next run sees, and a suite that only passes on a used world is worse
- * than useless. `level.dat` survives because it carries the experiment toggles that took a whole
- * boot cycle to set up.
+ * Deletes the world's chunks so each run starts from unmodified terrain. `level.dat` is kept because
+ * it carries the experiment toggles.
  */
 export async function resetWorldChunks(worldDir: string): Promise<void> {
   await fs.rm(path.join(worldDir, 'db'), { recursive: true, force: true });

@@ -1,27 +1,23 @@
-/**
- * The `server.properties` the runner writes before every run.
- *
- * Only the keys that change behaviour we depend on are listed; everything else keeps the shipped
- * default. Each non-obvious choice carries its reason, because the failure they prevent is usually
- * silent (a test that never ticks, a run that hangs, a port collision in CI).
- */
+/** The `server.properties` the runner writes before every run. Unlisted keys keep the shipped default. */
 export interface ServerPropertiesOptions {
   levelName: string;
   port: number;
   portV6: number;
 
-  /**
-   * The script hang threshold in milliseconds.
-   *
-   * This is the in-game Watchdog that made heavy suites unrunnable in the client and forced the old
-   * harness to gate them behind an `isHeadless()` check. On a dedicated server it is simply a
-   * config key, so the gate is unnecessary — raise it and let the slow tests run.
-   */
+  /** The script watchdog hang threshold in milliseconds, raised so long-running suites are not killed. */
   watchdogHangMs: number;
+
+  /**
+   * Advertise the server on the local network so it appears in a client's Friends tab.
+   *
+   * Off for an unattended run, where two servers on one machine must not fight over discovery. On
+   * when the server is held open for a person to join and look at the test plots.
+   */
+  lanVisible: boolean;
 }
 
 export function renderServerProperties(options: ServerPropertiesOptions): string {
-  const { levelName, port, portV6, watchdogHangMs } = options;
+  const { levelName, port, portV6, watchdogHangMs, lanVisible } = options;
 
   const lines: [string, string | number][] = [
     ['level-name', levelName],
@@ -42,9 +38,7 @@ export function renderServerProperties(options: ServerPropertiesOptions): string
     ['online-mode', 'false'],
     ['allow-list', 'false'],
 
-    // Do not advertise on the LAN. Two runs on one machine (or a CI box shared with anything else)
-    // must not fight over discovery.
-    ['enable-lan-visibility', 'false'],
+    ['enable-lan-visibility', lanVisible ? 'true' : 'false'],
     ['server-port', port],
     ['server-portv6', portV6],
 
