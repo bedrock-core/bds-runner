@@ -81,8 +81,8 @@ describe('discoverPacks', () => {
 });
 
 describe('deployPacks', () => {
-  // The regression this exists for: both addons export a directory called `BP`, so deploying by
-  // basename copied the second one over the first and the cross-addon test could never pass.
+  // Two addons both exporting a directory called `BP` must not collide: a pack is deployed under
+  // its addon-derived slug, never under its export basename.
   it('gives every behaviour pack its own folder in the world', async () => {
     const packs = await discoverPacks([await addon('test-addon', 'a'), await addon('test-addon-2', 'b')]);
     const world = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-world-'));

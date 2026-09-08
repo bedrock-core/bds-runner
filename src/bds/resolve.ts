@@ -23,10 +23,12 @@ async function exists(target: string): Promise<boolean> {
 
 /**
  * Serialises concurrent resolves against one cache directory, so two runs cannot interleave their
- * extraction. A lock older than ten minutes is treated as abandoned.
+ * extraction. The holder touches the lock every minute; one not touched for ten minutes is treated
+ * as abandoned, so a slow download is never mistaken for a dead process.
  */
 async function withLock<T>(lockPath: string, work: () => Promise<T>): Promise<T> {
   const staleAfterMs = 10 * 60_000;
+  const touchEveryMs = 60_000;
 
   await fs.mkdir(path.dirname(lockPath), { recursive: true });
 
@@ -48,9 +50,18 @@ async function withLock<T>(lockPath: string, work: () => Promise<T>): Promise<T>
     }
   }
 
+  const heartbeat = setInterval(() => {
+    const now = new Date();
+
+    fs.utimes(lockPath, now, now).catch(() => {});
+  }, touchEveryMs);
+
+  heartbeat.unref();
+
   try {
     return await work();
   } finally {
+    clearInterval(heartbeat);
     await fs.rm(lockPath, { force: true });
   }
 }

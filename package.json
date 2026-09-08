@@ -77,7 +77,6 @@
 	"publishConfig": {
 		"access": "public"
 	},
-	"private": true,
 	"bugs": {
 		"url": "https://github.com/bedrock-core/bds-runner/issues"
 	},

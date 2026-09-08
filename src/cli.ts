@@ -93,7 +93,13 @@ const first = (args: Args, key: string): string | undefined => args.values.get(k
 const number = (args: Args, key: string): number | undefined => {
   const raw = first(args, key);
 
-  return raw === undefined ? undefined : Number(raw);
+  if (raw === undefined) { return undefined; }
+
+  const value = Number(raw);
+
+  if (!Number.isFinite(value)) { throw new Error(`--${key} must be a number, got "${raw}"`); }
+
+  return value;
 };
 
 /** `--bds-version` / `--bds-channel` / `--config`, accepted by every command. */

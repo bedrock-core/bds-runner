@@ -33,7 +33,7 @@ export interface ProvisionResult {
   serverDir: string;
   worldDir: string;
 
-  /** True when the tree was created by this call, so the world still needs bootstrapping. */
+  /** True when the world has not been generated yet, so it still needs the bootstrap boot. */
   created: boolean;
 }
 
@@ -57,9 +57,7 @@ export async function provisionServer(options: ProvisionOptions): Promise<Provis
     await fs.rm(dir, { recursive: true, force: true });
   }
 
-  const created = !await exists(path.join(dir, serverExecutable()));
-
-  if (created) {
+  if (!await exists(path.join(dir, serverExecutable()))) {
     onProgress(`copying Bedrock Dedicated Server ${version} into ${dir}`);
     await fs.mkdir(path.dirname(dir), { recursive: true });
     await fs.cp(cacheDir, dir, { recursive: true });
@@ -78,7 +76,13 @@ export async function provisionServer(options: ProvisionOptions): Promise<Provis
     `${JSON.stringify({ allowed_modules: ALLOWED_MODULES }, null, 2)}\n`,
   );
 
-  return { serverDir: dir, worldDir: path.join(dir, 'worlds', levelName), created };
+  const worldDir = path.join(dir, 'worlds', levelName);
+
+  // Keyed on the world rather than the tree: a bootstrap interrupted after the copy leaves a tree
+  // with no world, and the next run must generate it rather than boot without Beta APIs.
+  const created = !await exists(path.join(worldDir, 'level.dat'));
+
+  return { serverDir: dir, worldDir, created };
 }
 
 /**
