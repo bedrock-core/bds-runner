@@ -51,7 +51,8 @@
 		"where": "node bin/bc-bds.mjs where",
 		"changeset": "changeset",
 		"version-packages": "changeset version",
-		"release": "yarn lint && yarn typecheck && yarn test && changeset publish"
+		"release": "yarn lint && yarn typecheck && yarn test && changeset publish",
+		"clean": "node scripts/clean.mjs"
 	},
 	"dependencies": {
 		"jiti": "^2.7.0",
