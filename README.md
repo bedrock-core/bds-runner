@@ -23,6 +23,13 @@ yarn add --dev @bedrock-core/bds-runner
 ✗ 5 passed, 1 failed   (my-suite, BDS 1.26.45.1, 7.1s)
 ```
 
+It also runs the server's pack optimizer, which packs a built addon's loose files into the archives
+the game ships its own packs in. Converted packs need a 1.26.40 or newer client.
+
+```bash
+npx @bedrock-core/bds-runner optimize --packs ./build --out ./dist
+```
+
 Commands, options, configuration and exit codes: https://bedrock-core.drav.dev/docs/bds-runner
 
 ## License

@@ -48,7 +48,7 @@ function sweep(dir) {
       continue;
     }
 
-    if (DISPOSABLE_SUFFIX.some((suffix) => entry.name.endsWith(suffix))) drop(target);
+    if (DISPOSABLE_SUFFIX.some(suffix => entry.name.endsWith(suffix))) drop(target);
   }
 }
 

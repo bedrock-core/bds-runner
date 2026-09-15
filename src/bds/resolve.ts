@@ -2,7 +2,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fetchBds } from './download';
 import { writeConfigSchema } from '../server/schema';
-import { cacheDir, pinnedVersion, platformKey, schemaFile, serverExecutable } from './paths';
+import { detectPin, writeDetectedConfig } from './detect';
+import {
+  cacheDir,
+  CONFIG_FILE,
+  findConfig,
+  pinnedVersion,
+  platformKey,
+  projectRoot,
+  schemaFile,
+  serverExecutable,
+} from './paths';
 import { LATEST, resolveVersion } from './versions';
 
 export interface ResolvedBds {
@@ -93,8 +103,44 @@ export async function resolveBds(options: ResolveOptions = {}): Promise<Resolved
   return resolved;
 }
 
+/**
+ * Gives a project that has never chosen a build the one its own packs ask for, and writes the
+ * choice down. Runs only when nothing else has already made it: no flag, no config file, no
+ * `BC_BDS_PATH`, and a network to look the build up on.
+ */
+async function adoptDetectedPin(onProgress: (message: string) => void): Promise<void> {
+  const root = projectRoot();
+  const pin = await detectPin(root, platformKey()).catch(() => undefined);
+
+  if (pin === undefined) {
+    onProgress(`no ${CONFIG_FILE} and no min_engine_version to read — taking the newest stable build`);
+
+    return;
+  }
+
+  const written = await writeDetectedConfig(root, pin);
+
+  onProgress(
+    `no ${CONFIG_FILE}: ${pin.manifests} manifest(s) declare min_engine_version ${pin.floor}`,
+  );
+  onProgress(written === undefined
+    ? `using ${pin.version} (${pin.channel}), the newest ${pin.floor} build`
+    : `pinned ${pin.version} (${pin.channel}) in ${path.relative(process.cwd(), written) || CONFIG_FILE}`);
+}
+
 async function locateBds(options: ResolveOptions): Promise<ResolvedBds> {
   const { onProgress = (): void => {}, offline = false } = options;
+
+  if (
+    !process.env.BC_BDS_PATH
+    && options.version === undefined
+    && options.configPath === undefined
+    && !offline
+    && findConfig() === undefined
+  ) {
+    await adoptDetectedPin(onProgress);
+  }
+
   const pinned = pinnedVersion({ version: options.version, channel: options.channel, configPath: options.configPath });
   const { channel } = pinned;
   const platform = platformKey();

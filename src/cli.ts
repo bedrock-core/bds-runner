@@ -12,6 +12,8 @@ import {
   serverExecutable,
   type VersionOverride,
 } from './bds/paths';
+import { detectPin } from './bds/detect';
+import { optimizePacks } from './bds/optimize';
 import { channelOf, fetchIndex, LATEST } from './bds/versions';
 import { resolveBds } from './bds/resolve';
 import { formatSummary } from './report/summary';
@@ -31,6 +33,7 @@ const USAGE = `
 bc-bds — run Minecraft GameTests on a Bedrock Dedicated Server
 
   bc-bds run --packs <dir> --tag <tag> [options]
+  bc-bds optimize --packs <dir> --out <dir> [--unpack]
   bc-bds fetch                 download and cache the server
   bc-bds where                 print the resolved server directory and version
 
@@ -56,6 +59,17 @@ Options for \`run\`:
   --offline                    never download; fail if the cache is cold
   --quiet                      do not echo server output
   --json <path>                also write the result as JSON
+
+Options for \`optimize\` — pack the loose files of built packs into archives, the way
+the game ships its own. A converted pack needs a 1.26.40 or newer client:
+  --packs <dir>                directory holding one subfolder per pack; Regolith's
+                               build/ is already this shape                (required)
+  --out <dir>                  where the converted packs are written; has to sit
+                               outside --packs                             (required)
+  --unpack                     the other direction: expand a converted tree back into
+                               loose files. JSON comes back minified, not as authored
+  --verbose                    echo the converter's own per-file lines
+  --offline                    never download; fail if the cache is cold
 `.trimStart();
 
 interface Args {
@@ -187,6 +201,68 @@ async function commandRun(args: Args): Promise<number> {
   return result.regressions.length > 0 ? EXIT.testsFailed : EXIT.ok;
 }
 
+const KB = 1024;
+const MB = KB * 1024;
+
+function bytes(value: number): string {
+  if (value < KB) { return `${value} B`; }
+
+  if (value < MB) { return `${(value / KB).toFixed(0)} KB`; }
+
+  return `${(value / MB).toFixed(1)} MB`;
+}
+
+async function commandOptimize(args: Args): Promise<number> {
+  const packsDir = first(args, 'packs');
+  const outDir = first(args, 'out');
+
+  if (!packsDir || !outDir) {
+    process.stderr.write('bc-bds optimize needs both --packs and --out\n\n');
+    process.stderr.write(USAGE);
+
+    return EXIT.infrastructure;
+  }
+
+  const bds = versionOverride(args);
+  const result = await optimizePacks({
+    packsDir,
+    outDir,
+    unpack: args.flags.has('unpack'),
+    echo: args.flags.has('verbose'),
+    offline: args.flags.has('offline'),
+    bdsVersion: bds.version,
+    bdsChannel: bds.channel,
+    configPath: bds.configPath,
+    onProgress: message => process.stdout.write(`  ${message}\n`),
+  });
+
+  process.stdout.write('\n');
+
+  for (const pack of result.packs) {
+    const delta = pack.sizeBefore === 0
+      ? ''
+      : ` (${pack.sizeAfter <= pack.sizeBefore ? '−' : '+'}${
+        Math.abs(100 - (pack.sizeAfter / pack.sizeBefore) * 100).toFixed(1)}%)`;
+
+    process.stdout.write(`  ${pack.name} — ${bytes(pack.sizeBefore)} → ${bytes(pack.sizeAfter)}${delta}\n`);
+    process.stdout.write(result.unpacked
+      ? `      ${pack.entries} file(s) extracted, ${pack.copied} copied\n`
+      : `      ${pack.entries} archived (${bytes(pack.bytesBefore)} → ${bytes(pack.bytesAfter)})`
+        + `${pack.stubs > 0 ? `, ${pack.stubs} listed only` : ''}`
+        + `, ${pack.copied} copied out\n`);
+  }
+
+  process.stdout.write(`\n  BDS ${result.bdsVersion}, ${(result.durationMs / 1000).toFixed(1)}s → ${result.outDir}\n`);
+
+  if (!result.unpacked) {
+    process.stdout.write('  Converted packs require a 1.26.40 or newer client.\n');
+  }
+
+  process.stdout.write('\n');
+
+  return EXIT.ok;
+}
+
 async function commandFetch(args: Args): Promise<number> {
   const resolved = await resolveBds({
     ...versionOverride(args),
@@ -203,12 +279,30 @@ async function commandFetch(args: Args): Promise<number> {
 /** Reports where the server will come from and what upstream currently offers. An unreachable index is an error. */
 async function commandWhere(args: Args): Promise<number> {
   const override = versionOverride(args);
-  const pinned = pinnedVersion(override);
   const platform = platformKey();
   const config = override.configPath ?? findConfig();
 
+  // A project with no config gets its build detected on the next run, so that is the build this
+  // report is about. `where` works it out the same way and writes nothing: it reports, it does
+  // not decide.
+  const detected = config === undefined && override.version === undefined && !process.env.BC_BDS_PATH
+    ? await detectPin(projectRoot(), platform).catch(() => undefined)
+    : undefined;
+
+  const pinned = detected === undefined
+    ? pinnedVersion(override)
+    : { version: detected.version, channel: detected.channel };
+
   process.stdout.write(`selected: ${pinned.version} (${pinned.channel}, ${platform})\n`);
-  process.stdout.write(`config:   ${config ?? 'none found; defaulting to the newest stable build'}\n`);
+  process.stdout.write(`config:   ${config ?? 'none found'}\n`);
+
+  if (config === undefined && override.version === undefined && !process.env.BC_BDS_PATH) {
+    process.stdout.write(detected === undefined
+      ? 'detected: nothing — no manifest declares min_engine_version, so the newest stable build is used\n'
+      : `detected: min_engine_version ${detected.floor} in ${detected.manifests} manifest(s);`
+        + ` ${CONFIG_FILE} is written on the next run\n`);
+  }
+
   process.stdout.write(`project:  ${projectRoot()}\n`);
 
   if (process.env.BC_BDS_PATH) { process.stdout.write(`override: BC_BDS_PATH=${process.env.BC_BDS_PATH}\n`); }
@@ -250,6 +344,7 @@ export async function main(argv: string[]): Promise<number> {
 
   switch (args.command) {
     case 'run': return commandRun(args);
+    case 'optimize': return commandOptimize(args);
     case 'fetch': return commandFetch(args);
     case 'where': return commandWhere(args);
     default:

@@ -1,6 +1,6 @@
 {
 	"name": "@bedrock-core/bds-runner",
-	"version": "0.1.0",
+	"version": "0.0.0",
 	"description": "Runs Minecraft GameTests headlessly on a Bedrock Dedicated Server and reports a CI exit code",
 	"keywords": [
 		"minecraft",
@@ -51,7 +51,7 @@
 		"where": "node bin/bc-bds.mjs where",
 		"changeset": "changeset",
 		"version-packages": "changeset version",
-		"release": "yarn lint && yarn typecheck && yarn test && changeset publish",
+		"release": "yarn lint && yarn typecheck && yarn test && node scripts/publish-tarballs.mjs && changeset tag",
 		"clean": "node scripts/clean.mjs"
 	},
 	"dependencies": {
