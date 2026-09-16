@@ -12,9 +12,13 @@ const READY_RE = /\bServer started\b/;
 /**
  * Boot failures worth aborting on rather than waiting out the ready timeout. A pack that fails to
  * load still lets the server start, so these are checked for the whole run, not just during boot.
+ *
+ * `[Structure]` lines are excluded: the engine logs "Failed to load the contents of file" for its
+ * own structure files while a fresh world generates, with no pack involved and nothing skipped
+ * that a run depends on.
  */
 const FATAL_RES = [
-  /Failed to load/i,
+  /^(?!.*\[Structure\]).*Failed to load/i,
   /No packs found/i,
   /Unable to open level/i,
   /\[Scripting\]\s*\[error\]/i,

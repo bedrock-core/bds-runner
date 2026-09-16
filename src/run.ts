@@ -145,9 +145,15 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
     onProgress('first run for this server: generating the world');
     const bootstrap = new BdsServer({ serverDir: path.dirname(path.dirname(worldDir)), logFile: `${logFile}.bootstrap`, echo: settings.echo });
 
-    await bootstrap.start();
-    await bootstrap.waitForReady();
-    await bootstrap.stop();
+    // Disposed whichever way the boot ends: a fatal line during generation must not leave the
+    // server process behind, holding the port and the world.
+    try {
+      await bootstrap.start();
+      await bootstrap.waitForReady();
+      await bootstrap.stop();
+    } finally {
+      await bootstrap.dispose();
+    }
 
     const result = await enableBetaApis(worldDir);
 
