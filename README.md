@@ -23,11 +23,22 @@ yarn add --dev @bedrock-core/bds-runner
 ✗ 5 passed, 1 failed   (my-suite, BDS 1.26.45.1, 7.1s)
 ```
 
+Pass `--keep-alive` and the server stays up after the results so you can join it yourself over
+NetherNet and look at the plots; `stop` or Ctrl+C ends it.
+
 It also runs the server's pack optimizer, which packs a built addon's loose files into the archives
 the game ships its own packs in. Converted packs need a 1.26.40 or newer client.
 
 ```bash
 npx @bedrock-core/bds-runner optimize --packs ./build --out ./dist
+```
+
+`fetch` downloads and caches the server on its own, and `where` prints the resolved server
+directory and version without running anything:
+
+```bash
+npx @bedrock-core/bds-runner fetch
+npx @bedrock-core/bds-runner where
 ```
 
 Commands, options, configuration and exit codes: https://bedrock-core.drav.dev/docs/bds-runner

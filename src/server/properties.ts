@@ -45,6 +45,10 @@ export function renderServerProperties(options: ServerPropertiesOptions): string
   const defaults: Record<string, PropertyValue> = {
     'server-name': 'bc-bds-runner',
 
+    // The transport every client uses from 1.26.50 on; a server on raknet refuses players. Set
+    // here because this file is written from scratch, so the shipped default would be lost.
+    'transport': 'nethernet',
+
     // Creative + peaceful so nothing wanders into a test plot and no mob AI competes for ticks.
     'gamemode': 'creative',
     'force-gamemode': true,
