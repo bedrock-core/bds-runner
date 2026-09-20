@@ -4,7 +4,7 @@ import { loadConfig, logsDir } from './bds/paths';
 import { resolveBds } from './bds/resolve';
 import { parseReport, type Summary, summarise } from './report/parse';
 import { deployPacks, discoverPacks } from './server/packs';
-import { provisionServer, resetWorldChunks } from './server/provision';
+import { discardWorld, provisionServer, resetWorldChunks } from './server/provision';
 import { BdsServer } from './server/process';
 import { enableBetaApis, writeWorldPackReferences } from './server/world';
 
@@ -151,13 +151,21 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
       await bootstrap.start();
       await bootstrap.waitForReady();
       await bootstrap.stop();
+
+      const result = await enableBetaApis(worldDir);
+
+      onProgress(`enabled experiments: ${result.experiments.join(', ')}`);
+    } catch (error) {
+      // level.dat can exist even when the initial boot or experiment write fails. Leaving it
+      // behind makes provisioning treat the world as ready and skips the only point that enables
+      // Beta APIs, so the next run fails until someone manually passes --fresh.
+      await discardWorld(worldDir);
+      onProgress('first boot did not finish; discarded the incomplete world');
+
+      throw error;
     } finally {
       await bootstrap.dispose();
     }
-
-    const result = await enableBetaApis(worldDir);
-
-    onProgress(`enabled experiments: ${result.experiments.join(', ')}`);
   }
 
   await resetWorldChunks(worldDir);

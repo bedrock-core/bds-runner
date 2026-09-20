@@ -32,7 +32,7 @@ export interface OptimizeOptions {
    */
   packsDir: string;
 
-  /** Where the converted packs are written. Created as needed, and never inside `packsDir`. */
+  /** Where the converted packs are written. Created as needed, and never overlapping `packsDir`. */
   outDir: string;
 
   /** Expand an already-converted tree back into loose files instead of converting one. */
@@ -244,8 +244,8 @@ class Tally {
 /**
  * Runs the converter over `packsDir` and writes the result to `outDir`.
  *
- * @throws if the server cannot be resolved, the input is not a directory of packs, `outDir` sits
- * inside `packsDir`, a pack is already converted, or the converter reports a failure.
+ * @throws if the server cannot be resolved, the input is not a directory of packs, `outDir`
+ * overlaps `packsDir`, a pack is already converted, or the converter reports a failure.
  */
 export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeResult> {
   const {
@@ -262,10 +262,10 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
     throw new Error(`${packsDir} is not a directory. Point --packs at the folder holding one subfolder per pack.`);
   }
 
-  if (contains(packsDir, outDir)) {
+  if (contains(packsDir, outDir) || contains(outDir, packsDir)) {
     throw new Error(
-      `--out ${outDir} sits inside --packs ${packsDir}. The converter reads every subdirectory of `
-      + 'the input as a pack, so the output has to live outside it.',
+      `--out ${outDir} overlaps --packs ${packsDir}. The converter clears an existing output pack `
+      + 'directory before writing it, so the output must live outside the input tree.',
     );
   }
 

@@ -92,3 +92,13 @@ export async function provisionServer(options: ProvisionOptions): Promise<Provis
 export async function resetWorldChunks(worldDir: string): Promise<void> {
   await fs.rm(path.join(worldDir, 'db'), { recursive: true, force: true });
 }
+
+/**
+ * Removes one generated world after its first boot did not reach a reusable state.
+ *
+ * The server copy and sibling worlds are deliberately kept: only this world's level.dat can make
+ * a later run skip its bootstrap and therefore start without the experiments it needs.
+ */
+export async function discardWorld(worldDir: string): Promise<void> {
+  await fs.rm(worldDir, { recursive: true, force: true });
+}
