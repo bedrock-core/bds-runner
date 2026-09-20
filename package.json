@@ -1,6 +1,6 @@
 {
 	"name": "@bedrock-core/bds-runner",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Runs Minecraft GameTests headlessly on a Bedrock Dedicated Server and reports a CI exit code",
 	"keywords": [
 		"minecraft",
