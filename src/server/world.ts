@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import nbt from 'prismarine-nbt';
+import type { PackVersion } from './packs';
 
 /**
  * Enabling Beta APIs on a Bedrock Dedicated Server.
@@ -122,7 +123,7 @@ export async function enableBetaApis(worldDir: string): Promise<BootstrapResult>
 
 interface PackReference {
   packId: string;
-  version: number[];
+  version: PackVersion;
 }
 
 /**

@@ -1,11 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { type PackDeployment, readDeploymentRecord, versionResourcePacks } from './pack-deployment';
+
+export type PackVersion = number[] | string;
 
 export interface PackInfo {
 
   /** The manifest **header** uuid — the only id `world_*_packs.json` matches against. */
   packId: string;
-  version: number[];
+  version: PackVersion;
   name: string;
   dir: string;
   kind: 'behavior' | 'resource';
@@ -15,7 +18,7 @@ export interface PackInfo {
 }
 
 interface Manifest {
-  header?: { uuid?: string; version?: number[]; name?: string };
+  header?: { uuid?: string; version?: PackVersion; name?: string };
   modules?: { type?: string }[];
 }
 
@@ -162,7 +165,7 @@ async function rejectLinkedDirectory(dir: string): Promise<void> {
  * packs. Each managed destination is replaced completely so deleted files and packs cannot linger.
  * Source packs, the cached server build, and Minecraft client folders are never modified.
  */
-export async function deployPacks(serverDir: string, worldDir: string, packs: PackInfo[]): Promise<void> {
+export async function deployPacks(serverDir: string, worldDir: string, packs: PackInfo[]): Promise<PackDeployment> {
   const server = await fs.realpath(serverDir);
   const world = path.resolve(worldDir);
   const worlds = path.join(server, 'worlds');
@@ -203,13 +206,21 @@ export async function deployPacks(serverDir: string, worldDir: string, packs: Pa
     }
   }
 
+  const record = await readDeploymentRecord(server);
+  const copies: (PackInfo & { sourceDir: string })[] = [];
+
   for (const destination of destinations) {
     await fs.rm(destination.world, { recursive: true, force: true });
     await fs.rm(destination.development, { recursive: true, force: true });
     await fs.mkdir(destination.development, { recursive: true });
 
     for (const pack of packs.filter(p => p.kind === destination.kind)) {
-      await fs.cp(pack.dir, path.join(destination.development, pack.slug), { recursive: true });
+      const dir = path.join(destination.development, pack.slug);
+
+      await fs.cp(pack.dir, dir, { recursive: true });
+      copies.push({ ...pack, dir, sourceDir: pack.dir });
     }
   }
+
+  return versionResourcePacks(copies, record);
 }

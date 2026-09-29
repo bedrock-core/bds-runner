@@ -40,7 +40,7 @@ export {
 export { formatSummary } from './report/summary';
 export { type RunOptions, type RunResult, runGameTests } from './run';
 export { BdsServer } from './server/process';
-export { discoverPacks, type PackInfo } from './server/packs';
+export { discoverPacks, type PackInfo, type PackVersion } from './server/packs';
 export { enableBetaApis } from './server/world';
 export { MANAGED_PROPERTIES, type PropertyValue, renderServerProperties } from './server/properties';
 export { buildConfigSchema, parseServerProperties, type PropertySpec, writeConfigSchema } from './server/schema';

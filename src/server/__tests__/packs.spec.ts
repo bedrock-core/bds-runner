@@ -29,11 +29,11 @@ async function addon(name: string, uuidPrefix: string): Promise<string> {
 
   await write('BP', {
     header: { uuid: `${uuidPrefix}-bp`, version: [1, 0, 0], name: `${name} behaviour` },
-    modules: [{ type: 'script' }],
+    modules: [{ type: 'script', version: [1, 0, 0] }],
   });
   await write('RP', {
     header: { uuid: `${uuidPrefix}-rp`, version: [1, 0, 0], name: `${name} resources` },
-    modules: [{ type: 'resources' }],
+    modules: [{ type: 'resources', version: [1, 0, 0] }],
   });
 
   return root;
@@ -97,16 +97,17 @@ async function writeFile(file: string, contents = 'keep'): Promise<void> {
 }
 
 describe('deployPacks', () => {
-  it('deploys distinct addons to server development folders and activates their original manifests', async () => {
+  it('deploys distinct addons to server development folders and activates the deployed versions', async () => {
     const packs = await discoverPacks([await addon('test-addon', 'a'), await addon('test-addon-2', 'b')]);
     const { server, world } = await serverTree();
     const manifests = await Promise.all(packs.map(pack => fs.readFile(path.join(pack.dir, 'manifest.json'), 'utf8')));
 
-    await deployPacks(server, world, packs);
+    const deployment = await deployPacks(server, world, packs);
+
     await writeWorldPackReferences(
       world,
-      packs.filter(pack => pack.kind === 'behavior'),
-      packs.filter(pack => pack.kind === 'resource'),
+      deployment.packs.filter(pack => pack.kind === 'behavior'),
+      deployment.packs.filter(pack => pack.kind === 'resource'),
     );
 
     for (const kind of ['behavior', 'resource'] as const) {
@@ -116,12 +117,14 @@ describe('deployPacks', () => {
         .toEqual([`test-addon-2_${suffix}`, `test-addon_${suffix}`]);
       await expect(fs.access(path.join(world, `${kind}_packs`))).rejects.toThrow();
       expect(JSON.parse(await fs.readFile(path.join(world, `world_${kind}_packs.json`), 'utf8')))
-        .toEqual([{ pack_id: `a-${suffix}`, version: [1, 0, 0] }, { pack_id: `b-${suffix}`, version: [1, 0, 0] }]);
+        .toEqual(deployment.packs.filter(pack => pack.kind === kind).map(pack => ({ pack_id: pack.packId, version: pack.version })));
     }
 
     for (const [index, pack] of packs.entries()) {
-      expect(await fs.readFile(path.join(server, `development_${pack.kind}_packs`, pack.slug, 'manifest.json'), 'utf8'))
-        .toBe(manifests[index]);
+      const deployed = JSON.parse(await fs.readFile(path.join(server, `development_${pack.kind}_packs`, pack.slug, 'manifest.json'), 'utf8'));
+
+      expect(deployed.header.uuid).toBe(pack.packId);
+      expect(deployed.header.version).toEqual(deployment.packs.find(candidate => candidate.packId === pack.packId)!.version);
       expect(await fs.readFile(path.join(pack.dir, 'manifest.json'), 'utf8')).toBe(manifests[index]);
     }
   });

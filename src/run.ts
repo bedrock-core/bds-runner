@@ -169,11 +169,16 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
   }
 
   await resetWorldChunks(worldDir);
-  await deployPacks(serverDir, worldDir, packs);
+  const deployment = await deployPacks(serverDir, worldDir, packs);
+
+  if (deployment.resourceStackHash) {
+    onProgress(`resource stack: ${deployment.resourceStackHash} (${deployment.recordFile})`);
+  }
+
   await writeWorldPackReferences(
     worldDir,
-    packs.filter(p => p.kind === 'behavior').map(p => ({ packId: p.packId, version: p.version })),
-    packs.filter(p => p.kind === 'resource').map(p => ({ packId: p.packId, version: p.version })),
+    deployment.packs.filter(p => p.kind === 'behavior').map(p => ({ packId: p.packId, version: p.version })),
+    deployment.packs.filter(p => p.kind === 'resource').map(p => ({ packId: p.packId, version: p.version })),
   );
 
   const server = new BdsServer({
