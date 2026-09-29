@@ -10,7 +10,7 @@ export interface PackInfo {
   dir: string;
   kind: 'behavior' | 'resource';
 
-  /** The directory this pack is deployed under inside the world, named after its addon so two `BP/` exports do not collide. */
+  /** The directory this pack is deployed under, named after its addon so two `BP/` exports do not collide. */
   slug: string;
 }
 
@@ -137,20 +137,79 @@ export async function discoverPacks(packsDirs: string | readonly string[]): Prom
   return packs;
 }
 
+/** Whether child is root itself or a descendant, using the current platform's path rules. */
+function containsPath(root: string, child: string): boolean {
+  const relative = path.relative(root, child);
+
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+async function rejectLinkedDirectory(dir: string): Promise<void> {
+  const stat = await fs.lstat(dir).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') { return undefined; }
+
+    throw error;
+  });
+
+  if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) {
+    throw new Error(`pack deployment requires a regular directory: ${dir}`);
+  }
+}
+
 /**
- * Copies packs into the world's own `behavior_packs/` and `resource_packs/`, which take precedence
- * over the server-level folders. Existing copies are removed first so a deleted file cannot survive
- * as a leftover.
+ * Copies packs into the isolated server's development folders. World references still activate
+ * the selected stack. World-local copies are removed because they can shadow the development
+ * packs. Each managed destination is replaced completely so deleted files and packs cannot linger.
+ * Source packs, the cached server build, and Minecraft client folders are never modified.
  */
-export async function deployPacks(worldDir: string, packs: PackInfo[]): Promise<void> {
-  for (const kind of ['behavior', 'resource'] as const) {
-    const target = path.join(worldDir, `${kind}_packs`);
+export async function deployPacks(serverDir: string, worldDir: string, packs: PackInfo[]): Promise<void> {
+  const server = await fs.realpath(serverDir);
+  const world = path.resolve(worldDir);
+  const worlds = path.join(server, 'worlds');
 
-    await fs.rm(target, { recursive: true, force: true });
-    await fs.mkdir(target, { recursive: true });
+  if (path.dirname(world) !== worlds) {
+    throw new Error(`pack deployment world must be a direct child of ${worlds}: ${world}`);
+  }
 
-    for (const pack of packs.filter(p => p.kind === kind)) {
-      await fs.cp(pack.dir, path.join(target, pack.slug), { recursive: true });
+  await rejectLinkedDirectory(worlds);
+  await rejectLinkedDirectory(world);
+
+  const destinations = (['behavior', 'resource'] as const).map(kind => ({
+    kind,
+    development: path.join(server, `development_${kind}_packs`),
+    world: path.join(world, `${kind}_packs`),
+  }));
+  const managed = destinations.flatMap(destination => [destination.development, destination.world]);
+
+  // Validate the entire write set before removing any content. In particular, a build supplied
+  // from inside a managed destination must not be deleted before it can be copied.
+  for (const target of managed) {
+    if (target === server || !containsPath(server, target)) {
+      throw new Error(`pack deployment destination escapes the server: ${target}`);
+    }
+
+    await rejectLinkedDirectory(target);
+  }
+
+  for (const pack of packs) {
+    if (!/^[\w.-]+$/.test(pack.slug) || pack.slug === '.' || pack.slug === '..') {
+      throw new Error(`invalid pack deployment directory name: ${pack.slug}`);
+    }
+
+    const source = await fs.realpath(pack.dir);
+
+    if (managed.some(target => containsPath(target, source) || containsPath(source, target))) {
+      throw new Error(`pack source overlaps a managed deployment directory: ${pack.dir}`);
+    }
+  }
+
+  for (const destination of destinations) {
+    await fs.rm(destination.world, { recursive: true, force: true });
+    await fs.rm(destination.development, { recursive: true, force: true });
+    await fs.mkdir(destination.development, { recursive: true });
+
+    for (const pack of packs.filter(p => p.kind === destination.kind)) {
+      await fs.cp(pack.dir, path.join(destination.development, pack.slug), { recursive: true });
     }
   }
 }

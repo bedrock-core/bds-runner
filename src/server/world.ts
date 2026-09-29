@@ -129,9 +129,8 @@ interface PackReference {
  * Points the world at the packs to load.
  *
  * BDS reads `world_behavior_packs.json` / `world_resource_packs.json` from the world directory and
- * matches each `pack_id` against the packs it can see, preferring the world-local
- * `behavior_packs/` and `resource_packs/` folders. The ids must be the **header** uuids from each
- * manifest — a module uuid silently matches nothing.
+ * matches each `pack_id` against the packs it can see, including the server development folders.
+ * The ids must be the **header** uuids from each manifest — a module uuid silently matches nothing.
  */
 export async function writeWorldPackReferences(
   worldDir: string,

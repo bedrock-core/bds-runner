@@ -124,7 +124,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
   });
   const version = bds.version;
 
-  const { worldDir, created } = await provisionServer({
+  const { serverDir, worldDir, created } = await provisionServer({
     cacheDir: bds.dir,
     version: bds.source === 'env' ? path.basename(bds.dir) : version,
     levelName: settings.levelName,
@@ -143,7 +143,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
   // run the tests with Beta APIs on. Every later run is a single boot.
   if (created) {
     onProgress('first run for this server: generating the world');
-    const bootstrap = new BdsServer({ serverDir: path.dirname(path.dirname(worldDir)), logFile: `${logFile}.bootstrap`, echo: settings.echo });
+    const bootstrap = new BdsServer({ serverDir, logFile: `${logFile}.bootstrap`, echo: settings.echo });
 
     // Disposed whichever way the boot ends: a fatal line during generation must not leave the
     // server process behind, holding the port and the world.
@@ -169,7 +169,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
   }
 
   await resetWorldChunks(worldDir);
-  await deployPacks(worldDir, packs);
+  await deployPacks(serverDir, worldDir, packs);
   await writeWorldPackReferences(
     worldDir,
     packs.filter(p => p.kind === 'behavior').map(p => ({ packId: p.packId, version: p.version })),
@@ -177,7 +177,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
   );
 
   const server = new BdsServer({
-    serverDir: path.dirname(path.dirname(worldDir)),
+    serverDir,
     logFile,
     echo: settings.echo,
   });

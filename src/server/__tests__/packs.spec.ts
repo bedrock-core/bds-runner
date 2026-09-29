@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { deployPacks, discoverPacks } from '../packs';
+import { writeWorldPackReferences } from '../world';
 
 const roots: string[] = [];
 
@@ -80,19 +81,137 @@ describe('discoverPacks', () => {
   });
 });
 
+async function serverTree(): Promise<{ server: string; world: string }> {
+  const server = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-server-'));
+  const world = path.join(server, 'worlds', 'bc-test');
+
+  roots.push(server);
+  await fs.mkdir(world, { recursive: true });
+
+  return { server: await fs.realpath(server), world: await fs.realpath(world) };
+}
+
+async function writeFile(file: string, contents = 'keep'): Promise<void> {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, contents);
+}
+
 describe('deployPacks', () => {
-  // Two addons both exporting a directory called `BP` must not collide: a pack is deployed under
-  // its addon-derived slug, never under its export basename.
-  it('gives every behaviour pack its own folder in the world', async () => {
+  it('deploys distinct addons to server development folders and activates their original manifests', async () => {
     const packs = await discoverPacks([await addon('test-addon', 'a'), await addon('test-addon-2', 'b')]);
-    const world = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-world-'));
+    const { server, world } = await serverTree();
+    const manifests = await Promise.all(packs.map(pack => fs.readFile(path.join(pack.dir, 'manifest.json'), 'utf8')));
 
-    roots.push(world);
-    await deployPacks(world, packs);
+    await deployPacks(server, world, packs);
+    await writeWorldPackReferences(
+      world,
+      packs.filter(pack => pack.kind === 'behavior'),
+      packs.filter(pack => pack.kind === 'resource'),
+    );
 
-    expect((await fs.readdir(path.join(world, 'behavior_packs'))).sort())
-      .toEqual(['test-addon-2_bp', 'test-addon_bp']);
-    expect((await fs.readdir(path.join(world, 'resource_packs'))).sort())
-      .toEqual(['test-addon-2_rp', 'test-addon_rp']);
+    for (const kind of ['behavior', 'resource'] as const) {
+      const suffix = kind === 'behavior' ? 'bp' : 'rp';
+
+      expect((await fs.readdir(path.join(server, `development_${kind}_packs`))).sort())
+        .toEqual([`test-addon-2_${suffix}`, `test-addon_${suffix}`]);
+      await expect(fs.access(path.join(world, `${kind}_packs`))).rejects.toThrow();
+      expect(JSON.parse(await fs.readFile(path.join(world, `world_${kind}_packs.json`), 'utf8')))
+        .toEqual([{ pack_id: `a-${suffix}`, version: [1, 0, 0] }, { pack_id: `b-${suffix}`, version: [1, 0, 0] }]);
+    }
+
+    for (const [index, pack] of packs.entries()) {
+      expect(await fs.readFile(path.join(server, `development_${pack.kind}_packs`, pack.slug, 'manifest.json'), 'utf8'))
+        .toBe(manifests[index]);
+      expect(await fs.readFile(path.join(pack.dir, 'manifest.json'), 'utf8')).toBe(manifests[index]);
+    }
+  });
+
+  it('removes stale development and world copies without changing server built-ins or sibling worlds', async () => {
+    const packs = await discoverPacks(await addon('test-addon', 'a'));
+    const { server, world } = await serverTree();
+    const keep = [
+      path.join(server, 'behavior_packs', 'vanilla', 'manifest.json'),
+      path.join(server, 'resource_packs', 'vanilla', 'manifest.json'),
+      path.join(server, 'worlds', 'other', 'resource_packs', 'custom', 'manifest.json'),
+      path.join(world, 'level.dat'),
+    ];
+    const stale = [
+      path.join(server, 'development_behavior_packs', 'unused', 'manifest.json'),
+      path.join(server, 'development_resource_packs', 'unused', 'manifest.json'),
+      path.join(world, 'behavior_packs', 'test-addon_bp', 'manifest.json'),
+      path.join(world, 'resource_packs', 'test-addon_rp', 'manifest.json'),
+    ];
+
+    for (const file of [...keep, ...stale]) { await writeFile(file); }
+
+    await deployPacks(server, world, packs);
+
+    for (const file of stale) { await expect(fs.access(file)).rejects.toThrow(); }
+
+    for (const file of keep) { expect(await fs.readFile(file, 'utf8')).toBe('keep'); }
+  });
+
+  it('replaces edited files and omits removed files and packs on a later run', async () => {
+    const first = await discoverPacks(await addon('test-addon', 'a'));
+    const second = await discoverPacks(await addon('test-addon-2', 'b'));
+    const { server, world } = await serverTree();
+    const resource = first.find(pack => pack.kind === 'resource')!;
+
+    await writeFile(path.join(resource.dir, 'textures', 'current.txt'), 'old');
+    await writeFile(path.join(resource.dir, 'textures', 'removed.txt'));
+    await deployPacks(server, world, [...first, ...second]);
+    await fs.writeFile(path.join(resource.dir, 'textures', 'current.txt'), 'new');
+    await fs.unlink(path.join(resource.dir, 'textures', 'removed.txt'));
+    await deployPacks(server, world, first);
+
+    const deployed = path.join(server, 'development_resource_packs', resource.slug);
+
+    expect(await fs.readFile(path.join(deployed, 'textures', 'current.txt'), 'utf8')).toBe('new');
+    expect(await fs.readFile(path.join(resource.dir, 'textures', 'current.txt'), 'utf8')).toBe('new');
+    await expect(fs.access(path.join(deployed, 'textures', 'removed.txt'))).rejects.toThrow();
+    expect(await fs.readdir(path.join(server, 'development_behavior_packs'))).toEqual(['test-addon_bp']);
+    expect(await fs.readdir(path.join(server, 'development_resource_packs'))).toEqual(['test-addon_rp']);
+  });
+
+  it.each(['development_resource_packs', 'worlds/bc-test/resource_packs'])('rejects a source inside %s before removing any pack', async (folder) => {
+    const packs = await discoverPacks(await addon('test-addon', 'a'));
+    const { server, world } = await serverTree();
+    const source = path.join(server, folder, 'source');
+    const marker = path.join(server, 'development_behavior_packs', 'existing', 'manifest.json');
+
+    await fs.mkdir(source, { recursive: true });
+    await writeFile(path.join(source, 'manifest.json'), 'source');
+    await writeFile(marker);
+    packs[1] = { ...packs[1], dir: source };
+    await expect(deployPacks(server, world, packs)).rejects.toThrow(/source overlaps/);
+    expect(await fs.readFile(path.join(source, 'manifest.json'), 'utf8')).toBe('source');
+    expect(await fs.readFile(marker, 'utf8')).toBe('keep');
+  });
+
+  it('rejects a linked development folder without changing its target or the world copies', async () => {
+    const packs = await discoverPacks(await addon('test-addon', 'a'));
+    const { server, world } = await serverTree();
+    const external = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-external-'));
+    const marker = path.join(world, 'behavior_packs', 'existing', 'manifest.json');
+
+    roots.push(external);
+    await writeFile(path.join(external, 'manifest.json'));
+    await writeFile(marker);
+    await fs.symlink(external, path.join(server, 'development_resource_packs'), process.platform === 'win32' ? 'junction' : 'dir');
+    await expect(deployPacks(server, world, packs)).rejects.toThrow(/regular directory/);
+    expect(await fs.readFile(path.join(external, 'manifest.json'), 'utf8')).toBe('keep');
+    expect(await fs.readFile(marker, 'utf8')).toBe('keep');
+  });
+
+  it('rejects an unrelated world and an unsafe slug before modifying the server', async () => {
+    const packs = await discoverPacks(await addon('test-addon', 'a'));
+    const { server, world } = await serverTree();
+    const unrelated = await serverTree();
+    const marker = path.join(server, 'development_behavior_packs', 'existing', 'manifest.json');
+
+    await writeFile(marker);
+    await expect(deployPacks(server, unrelated.world, packs)).rejects.toThrow(/direct child/);
+    await expect(deployPacks(server, world, [{ ...packs[0], slug: '../escape' }])).rejects.toThrow(/invalid pack deployment/);
+    expect(await fs.readFile(marker, 'utf8')).toBe('keep');
   });
 });
