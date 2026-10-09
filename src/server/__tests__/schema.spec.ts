@@ -81,6 +81,19 @@ describe('server:schema build', () => {
       type: ['string', 'number', 'boolean'],
     });
   });
+
+  it('excludes experiment metadata keys from the configurable experiment array', () => {
+    const schema = buildConfigSchema(parseServerProperties(SHIPPED), '1.26.43.1');
+    const experiments = (schema.properties as Record<string, Schema>).experiments;
+
+    expect(experiments).toMatchObject({
+      type: 'array', uniqueItems: true,
+      items: {
+        type: 'string', pattern: '^[a-z][a-z0-9_]*$',
+        not: { enum: ['experiments_ever_used', 'saved_with_toggled_experiments'] },
+      },
+    });
+  });
 });
 
 describe('server:properties overrides', () => {

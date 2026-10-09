@@ -84,7 +84,13 @@ function activeExperiments(root: NbtCompound): string[] {
  * The write is read back to verify it; a failed write otherwise surfaces much later as
  * `Unknown command: gametest`.
  */
-export async function enableBetaApis(worldDir: string): Promise<BootstrapResult> {
+export async function enableBetaApis(worldDir: string, additionalExperiments: readonly string[] = []): Promise<BootstrapResult> {
+  for (const key of additionalExperiments) {
+    if (!/^[a-z][a-z0-9_]*$/.test(key) || ['experiments_ever_used', 'saved_with_toggled_experiments'].includes(key)) {
+      throw new Error(`Invalid experiment NBT key: ${key}`);
+    }
+  }
+
   const file = path.join(worldDir, 'level.dat');
   const { storageVersion, root } = await readLevelDat(file);
 
@@ -92,6 +98,9 @@ export async function enableBetaApis(worldDir: string): Promise<BootstrapResult>
   const before = JSON.stringify(experiments.value);
 
   experiments.value[BETA_APIS_KEY] = { type: 'byte', value: 1 };
+
+  for (const key of additionalExperiments) { experiments.value[key] = { type: 'byte', value: 1 }; }
+
   experiments.value.experiments_ever_used = { type: 'byte', value: 1 };
   experiments.value.saved_with_toggled_experiments = { type: 'byte', value: 1 };
   root.value.experiments = experiments;
@@ -116,6 +125,10 @@ export async function enableBetaApis(worldDir: string): Promise<BootstrapResult>
       + 'create a flat creative world in the Minecraft client with "Beta APIs" enabled, then copy '
       + `its level.dat over ${file}.`,
     );
+  }
+
+  for (const key of additionalExperiments) {
+    if (!active.includes(key)) { throw new Error(`World experiment write did not persist: ${key}`); }
   }
 
   return { changed: true, experiments: active };

@@ -194,6 +194,15 @@ export function buildConfigSchema(specs: PropertySpec[], serverVersion: string):
         enum: ['stable', 'preview'],
         default: 'stable',
       },
+      experiments: {
+        type: 'array',
+        description: 'Additional experiment NBT keys enabled on the generated test world.',
+        items: {
+          type: 'string', pattern: '^[a-z][a-z0-9_]*$',
+          not: { enum: ['experiments_ever_used', 'saved_with_toggled_experiments'] },
+        },
+        uniqueItems: true,
+      },
       properties: {
         type: 'object',
         description: 'Overrides written into server.properties before every run.',

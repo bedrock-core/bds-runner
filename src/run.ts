@@ -152,7 +152,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
       await bootstrap.waitForReady();
       await bootstrap.stop();
 
-      const result = await enableBetaApis(worldDir);
+      const result = await enableBetaApis(worldDir, config.experiments);
 
       onProgress(`enabled experiments: ${result.experiments.join(', ')}`);
     } catch (error) {
@@ -166,6 +166,10 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
     } finally {
       await bootstrap.dispose();
     }
+  } else if (config.experiments?.length) {
+    const result = await enableBetaApis(worldDir, config.experiments);
+
+    if (result.changed) { onProgress(`enabled experiments: ${result.experiments.join(', ')}`); }
   }
 
   await resetWorldChunks(worldDir);

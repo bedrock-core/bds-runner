@@ -95,6 +95,8 @@ export interface PinnedVersion {
 export interface RunnerConfig extends PinnedVersion {
   /** `server.properties` overrides. Keys and types come from the selected server; see `schemaFile`. */
   properties: Record<string, string | number | boolean>;
+  /** Additional experiment NBT keys enabled on the runner's generated world. */
+  experiments?: string[];
 }
 
 /** Overrides for a single run, from a CLI flag. Both accept the same values as the config file. */
@@ -150,16 +152,23 @@ function readConfig(file: string): Partial<RunnerConfig> {
     throw new Error(`${file} must contain a JSON object`);
   }
 
-  const { version, channel, properties } = parsed as Record<string, unknown>;
+  const { version, channel, properties, experiments } = parsed as Record<string, unknown>;
 
   if (version !== undefined && typeof version !== 'string') {
     throw new Error(`${file}: "version" must be a string`);
+  }
+
+  if (experiments !== undefined && (!Array.isArray(experiments) || experiments.some(key => typeof key !== 'string'
+    || !/^[a-z][a-z0-9_]*$/.test(key) || ['experiments_ever_used', 'saved_with_toggled_experiments'].includes(key))
+  || new Set(experiments).size !== experiments.length)) {
+    throw new Error(`${file}: "experiments" must contain unique experiment NBT keys`);
   }
 
   return {
     version,
     channel: asChannel(channel, `${file}: "channel"`),
     properties: asProperties(properties, `${file}: "properties"`),
+    ...experiments === undefined ? {} : { experiments: experiments as string[] },
   };
 }
 
@@ -181,6 +190,7 @@ export function loadConfig(override: VersionOverride = {}): RunnerConfig {
       ?? config.channel
       ?? DEFAULTS.channel,
     properties: config.properties ?? {},
+    ...config.experiments === undefined ? {} : { experiments: config.experiments },
   };
 }
 
