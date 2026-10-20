@@ -1,5 +1,11 @@
 # @bedrock-core/bds-runner
 
+## 0.2.0
+
+### Minor Changes
+
+- [`260ed4f`](https://github.com/bedrock-core/bds-runner/commit/260ed4f2e403ab9d340ea84d1549e31b040f2b09) Thanks [@drav0011](https://github.com/drav0011)! - Support optional experiment NBT keys in `bds-runner.json` and enable them when preparing new or existing runner worlds. Configuration validation and its generated schema reject malformed, duplicate, and reserved metadata keys.
+
 ## 0.1.0
 
 ### Minor Changes
