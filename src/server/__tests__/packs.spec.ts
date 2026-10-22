@@ -67,7 +67,63 @@ describe('discoverPacks', () => {
     expect(packs).toHaveLength(2);
   });
 
-  it('refuses a build with no behaviour pack, since nothing could register a test', async () => {
+  it('discovers arbitrary pack names and several packs of either kind without traversing nested outputs', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-many-packs-'));
+
+    roots.push(tmp);
+
+    for (const [name, type] of [['logic', 'script'], ['content', 'data'], ['textures', 'resources'], ['interface', 'resources']]) {
+      await writeFile(path.join(tmp, name, 'manifest.json'), JSON.stringify({
+        header: { uuid: name, version: [1, 0, 0] }, modules: [{ type }],
+      }));
+    }
+
+    await writeFile(path.join(tmp, 'test', 'nested', 'manifest.json'), JSON.stringify({
+      header: { uuid: 'nested', version: [1, 0, 0] }, modules: [{ type: 'script' }],
+    }));
+    const packs = await discoverPacks(tmp);
+
+    expect(packs.map(pack => pack.packId).sort()).toEqual(['content', 'interface', 'logic', 'textures']);
+    expect(packs.filter(pack => pack.kind === 'behavior')).toHaveLength(2);
+    expect(packs.filter(pack => pack.kind === 'resource')).toHaveLength(2);
+    expect(new Set(packs.map(pack => pack.slug)).size).toBe(4);
+  });
+
+  it('accepts a behavior-only collection and its single pack directory', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-behavior-only-'));
+
+    roots.push(tmp);
+    await writeFile(path.join(tmp, 'gameplay', 'manifest.json'), JSON.stringify({
+      header: { uuid: 'logic', version: '1.0.0' }, modules: [{ type: 'script' }],
+    }));
+
+    expect((await discoverPacks(tmp)).map(pack => pack.packId)).toEqual(['logic']);
+    expect((await discoverPacks(path.join(tmp, 'gameplay'))).map(pack => pack.packId)).toEqual(['logic']);
+  });
+
+  it('treats a manifest-bearing input as one pack even when a child also contains a manifest', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-pack-root-'));
+    const manifest = JSON.stringify({ header: { uuid: 'outer', version: [1, 0, 0] }, modules: [{ type: 'script' }] });
+
+    roots.push(tmp);
+    await writeFile(path.join(tmp, 'manifest.json'), manifest);
+    await writeFile(path.join(tmp, 'nested', 'manifest.json'), manifest);
+
+    expect((await discoverPacks(tmp)).map(pack => pack.packId)).toEqual(['outer']);
+  });
+
+  it('rejects manifests without a supported pack module', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-other-pack-'));
+
+    roots.push(tmp);
+    await writeFile(path.join(tmp, 'manifest.json'), JSON.stringify({
+      header: { uuid: 'template', version: [1, 0, 0] }, modules: [{ type: 'world_template' }],
+    }));
+
+    await expect(discoverPacks(tmp)).rejects.toThrow(/must declare a data, script or resources module/);
+  });
+
+  it('refuses a build with no behavior pack, since nothing could register a test', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-packs-'));
 
     roots.push(tmp);
@@ -77,7 +133,7 @@ describe('discoverPacks', () => {
       JSON.stringify({ header: { uuid: 'r', version: [1, 0, 0] }, modules: [{ type: 'resources' }] }),
     );
 
-    await expect(discoverPacks([tmp])).rejects.toThrow(/no behaviour pack/);
+    await expect(discoverPacks([tmp])).rejects.toThrow(/no behavior pack/);
   });
 });
 

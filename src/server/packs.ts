@@ -13,7 +13,7 @@ export interface PackInfo {
   dir: string;
   kind: 'behavior' | 'resource';
 
-  /** The directory this pack is deployed under, named after its addon so two `BP/` exports do not collide. */
+  /** Unique deployment directory derived from the input root and pack directory. */
   slug: string;
 }
 
@@ -61,12 +61,24 @@ function rootLabel(root: string): string {
 
 async function discoverRoot(root: string, label: string): Promise<PackInfo[]> {
   const candidates: string[] = [];
+  const hasManifest = async (directory: string): Promise<boolean> =>
+    fs.stat(path.join(directory, 'manifest.json')).then(stat => stat.isFile(), () => false);
 
-  if (await isDirectory(path.join(root, 'BP'))) { candidates.push(path.join(root, 'BP')); }
+  if (await hasManifest(root)) {
+    candidates.push(root);
+  } else {
+    const entries = await fs.readdir(root, { withFileTypes: true });
 
-  if (await isDirectory(path.join(root, 'RP'))) { candidates.push(path.join(root, 'RP')); }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const directory = path.join(root, entry.name);
 
-  if (candidates.length === 0) { candidates.push(root); }
+      if (entry.isDirectory() && await hasManifest(directory)) { candidates.push(directory); }
+    }
+  }
+
+  if (candidates.length === 0) {
+    throw new Error(`no pack manifests found under ${root}; use a pack directory or a directory containing built packs`);
+  }
 
   const packs: PackInfo[] = [];
 
@@ -78,17 +90,25 @@ async function discoverRoot(root: string, label: string): Promise<PackInfo[]> {
       throw new Error(`${path.join(dir, 'manifest.json')} has no header uuid/version`);
     }
 
-    // A pack carrying script or data modules is a behaviour pack; anything else is resources.
     const types = new Set((manifest.modules ?? []).map(m => m.type));
-    const kind = types.has('script') || types.has('data') ? 'behavior' : 'resource';
+    const kind = types.has('script') || types.has('data') ? 'behavior' : types.has('resources') ? 'resource' : undefined;
+
+    if (!kind) {
+      throw new Error(`${path.join(dir, 'manifest.json')} must declare a data, script or resources module`);
+    }
+
+    const directoryName = path.basename(dir);
+    const suffix = dir === root || /^(?:BP|RP)$/i.test(directoryName)
+      ? kind === 'behavior' ? 'bp' : 'rp'
+      : directoryName.replace(/[^\w.-]+/g, '_');
 
     packs.push({
       packId: uuid,
       version,
-      name: name ?? path.basename(dir),
+      name: name ?? directoryName,
       dir,
       kind,
-      slug: `${label}_${kind === 'behavior' ? 'bp' : 'rp'}`,
+      slug: `${label}_${suffix}`,
     });
   }
 
@@ -96,9 +116,8 @@ async function discoverRoot(root: string, label: string): Promise<PackInfo[]> {
 }
 
 /**
- * Finds the behaviour and resource packs under one or more build roots. A root is either the
- * `BP/` + `RP/` layout or a single pack. More than one root installs several addons into the same
- * world.
+ * Discover a single manifest-bearing pack or the immediate pack directories in each build root.
+ * Directory names carry no pack type meaning. Repeated roots combine packs in one test world.
  */
 export async function discoverPacks(packsDirs: string | readonly string[]): Promise<PackInfo[]> {
   const roots = (typeof packsDirs === 'string' ? [packsDirs] : [...packsDirs]).map(dir => path.resolve(dir));
@@ -132,7 +151,7 @@ export async function discoverPacks(packsDirs: string | readonly string[]): Prom
 
   if (!packs.some(p => p.kind === 'behavior')) {
     throw new Error(
-      `no behaviour pack found under ${roots.join(', ')}. GameTests are registered from a behaviour `
+      `no behavior pack found under ${roots.join(', ')}. GameTests are registered from a behavior `
       + 'pack\'s script module, so there is nothing to run.',
     );
   }

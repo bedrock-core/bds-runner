@@ -43,7 +43,7 @@ Which server build (any command). Defaults to the newest stable build:
   --config <path>              a bds-runner.json to read instead of searching
 
 Options for \`run\`:
-  --packs <dir>                directory containing BP/ and RP/; repeatable, so
+  --packs <dir>                single pack or a folder of built packs; repeatable, so
                                several addons share one world            (required)
   --tag <tag>                  gametest tag to run                       (required)
   --expect-registered <n>      fail unless the engine announces n tests
@@ -62,7 +62,7 @@ Options for \`run\`:
 
 Options for \`optimize\` — pack the loose files of built packs into archives, the way
 the game ships its own. A converted pack needs a 1.26.40 or newer client:
-  --packs <dir>                directory holding one subfolder per pack; Regolith's
+  --packs <dir>                directory holding one subfolder per pack;
                                build/ is already this shape                (required)
   --out <dir>                  where the converted packs are written; has to sit
                                outside --packs                             (required)
