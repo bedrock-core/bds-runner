@@ -17,7 +17,7 @@ import { fetchIndex } from './versions';
 
 /** Never walked: package installs, build output, the runner's own cache, and worlds. */
 const SKIP = new Set([
-  'node_modules', '.git', '.bds', '.regolith', '__brarchive',
+  'node_modules', '.git', '.bds', '__brarchive',
   'build', 'dist', 'out', 'worlds', 'development_behavior_packs', 'development_resource_packs',
 ]);
 
