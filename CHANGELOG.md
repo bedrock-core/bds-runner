@@ -1,5 +1,15 @@
 # @bedrock-core/bds-runner
 
+## 0.2.0
+
+### Minor Changes
+
+- [`260ed4f`](https://github.com/bedrock-core/bds-runner/commit/260ed4f2e403ab9d340ea84d1549e31b040f2b09) Thanks [@drav0011](https://github.com/drav0011)! - Support optional experiment NBT keys in `bds-runner.json` and enable them when preparing new or existing runner worlds. Configuration validation and its generated schema reject malformed, duplicate, and reserved metadata keys.
+
+### Patch Changes
+
+- [`b257d1b`](https://github.com/bedrock-core/bds-runner/commit/b257d1bd18fdd8871d3290cc82ef4efef180264d) Thanks [@drav0011](https://github.com/drav0011)! - Discover test packs by their manifests in single-pack inputs and build directories with arbitrary pack folder names. Support several behavior and resource packs in the same build directory.
+
 ## 0.1.0
 
 ### Minor Changes
