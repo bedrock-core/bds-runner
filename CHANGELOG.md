@@ -1,5 +1,11 @@
 # @bedrock-core/bds-runner
 
+## 0.2.1
+
+### Patch Changes
+
+- cec3bde: Retain the census and verdicts from every sequential GameTest batch within a run.
+
 ## 0.2.0
 
 ### Minor Changes
