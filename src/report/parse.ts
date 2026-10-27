@@ -142,23 +142,26 @@ export function parseReport(text: string): Report {
     }
   }
 
-  // Anchor on the last run announcement. The engine announces a run as one `Running test batch …`
-  // line per batch followed by the `Running N tests with tag …` census, so find the census and walk
-  // back over the batch lines and blanks that belong to it.
-  let start = 0;
+  // The census identifies a run. Later batch announcements belong to that run and retain
+  // earlier verdicts. Include the initial batch lines immediately preceding the census.
+  let anchor = -1;
 
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (!EXPECTED_RE.test(lines[i]) && !BATCH_RE.test(lines[i])) { continue; }
+    if (EXPECTED_RE.test(lines[i])) { anchor = i; break; }
+  }
 
-    start = i;
-
-    while (start > 0) {
-      const previous = lines[start - 1];
-
-      if (previous.trim() === '' || BATCH_RE.test(previous)) { start--; } else { break; }
+  if (anchor < 0) {
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (BATCH_RE.test(lines[i])) { anchor = i; break; }
     }
+  }
 
-    break;
+  let start = Math.max(0, anchor);
+
+  while (start > 0) {
+    const previous = lines[start - 1];
+
+    if (previous.trim() === '' || BATCH_RE.test(previous)) { start--; } else { break; }
   }
 
   const report: Report = { ...EMPTY, experiments, scriptErrors, batches: [], loaded: [], passed: [], failed: [] };

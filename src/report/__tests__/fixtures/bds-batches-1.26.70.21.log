@@ -1,0 +1,37 @@
+Running test batch 'bc:constructs:m3:0' (16 tests)...
+[2026-10-26 21:49:37:736 INFO] Running 17 tests with tag 'bc:constructs:m3'...
+onTestStructureLoaded: bc:constructs:m3:weld_splits_hinged_machine_and_arm_swings
+onTestStructureLoaded: bc:constructs:m3:redstone_block_powers_thruster_upward
+onTestStructureLoaded: bc:constructs:m3:lever_on_live_construct_toggles_thruster
+onTestStructureLoaded: bc:constructs:m3:button_press_pulses_and_self_releases
+onTestStructureLoaded: bc:constructs:m3:grab_tether_follows_the_target_and_throws
+onTestStructureLoaded: bc:constructs:m3:pickcell_resolves_the_aimed_construct_cell
+onTestStructureLoaded: bc:constructs:m3:settle_unweld_stamps_at_the_current_position
+onTestStructureLoaded: bc:constructs:m3:unweld_aborts_when_the_landing_spot_is_blocked
+onTestStructureLoaded: bc:constructs:m3:anchor_block_locks_body_on_signal
+onTestStructureLoaded: bc:constructs:m3:freeze_and_adopt_restore_the_machine
+onTestStructureLoaded: bc:constructs:m3:world_thruster_exhaust_pushes_a_physics_cube
+onTestStructureLoaded: bc:constructs:m3:welded_rotor_couples_to_a_real_world_bearing
+onTestStructureLoaded: bc:constructs:m3:powered_bearing_drives_the_welded_rotor
+onTestStructureLoaded: bc:constructs:m3:empty_hand_bearing_weld_shortcut_couples_the_selection
+onTestStructureLoaded: bc:constructs:m3:creative_engine_spins_a_coupled_rotor
+onTestStructureLoaded: bc:constructs:m3:unweld_restores_blocks_at_origin
+onTestPassed: bc:constructs:m3:redstone_block_powers_thruster_upward
+onTestPassed: bc:constructs:m3:pickcell_resolves_the_aimed_construct_cell
+onTestPassed: bc:constructs:m3:weld_splits_hinged_machine_and_arm_swings
+onTestPassed: bc:constructs:m3:settle_unweld_stamps_at_the_current_position
+onTestPassed: bc:constructs:m3:unweld_aborts_when_the_landing_spot_is_blocked
+onTestPassed: bc:constructs:m3:grab_tether_follows_the_target_and_throws
+onTestPassed: bc:constructs:m3:button_press_pulses_and_self_releases
+onTestPassed: bc:constructs:m3:anchor_block_locks_body_on_signal
+onTestPassed: bc:constructs:m3:empty_hand_bearing_weld_shortcut_couples_the_selection
+onTestPassed: bc:constructs:m3:world_thruster_exhaust_pushes_a_physics_cube
+onTestPassed: bc:constructs:m3:unweld_restores_blocks_at_origin
+onTestPassed: bc:constructs:m3:welded_rotor_couples_to_a_real_world_bearing
+onTestPassed: bc:constructs:m3:freeze_and_adopt_restore_the_machine
+onTestPassed: bc:constructs:m3:creative_engine_spins_a_coupled_rotor
+onTestPassed: bc:constructs:m3:powered_bearing_drives_the_welded_rotor
+Running test batch 'bc:constructs:m3:handover:0' (1 tests)...
+onTestPassed: bc:constructs:m3:lever_on_live_construct_toggles_thruster
+onTestStructureLoaded: bc:constructs:m3:shared_world_machine_handover
+onTestPassed: bc:constructs:m3:shared_world_machine_handover

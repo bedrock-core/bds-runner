@@ -36,6 +36,26 @@ describe('report:parse', () => {
     expect(report.passed.length + report.failed.length).toBe(report.expected);
   });
 
+  it('retains verdicts across sequential batches in one native run', () => {
+    const report = parseReport(fixture('bds-batches-1.26.70.21.log'));
+
+    expect(report.expected).toBe(17);
+    expect(report.tag).toBe('bc:constructs:m3');
+    expect(report.batches).toEqual(['bc:constructs:m3:0', 'bc:constructs:m3:handover:0']);
+    expect(report.loaded).toHaveLength(17);
+    expect(report.passed).toHaveLength(17);
+    expect(report.failed).toEqual([]);
+    expect(summarise(report).verdicts).toHaveLength(17);
+  });
+
+  it('anchors a multiple-batch run after an earlier run in the same transcript', () => {
+    const report = parseReport(`${RUNSET}\n${fixture('bds-batches-1.26.70.21.log')}`);
+
+    expect(report.passed).toHaveLength(17);
+    expect(report.failed).toEqual([]);
+    expect(report.expected).toBe(17);
+  });
+
   it('captures the failure id and its full error text', () => {
     const report = parseReport(RUNSET);
 
