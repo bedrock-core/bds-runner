@@ -1,0 +1,54 @@
+name: Update Minecraft compatibility targets
+
+on:
+  schedule:
+    # Preview/drop windows and later-week hotfixes (UTC).
+    - cron: '19 17,21 * * 2,3'
+    - cron: '19 22 * * 4,5'
+    # Catch up after late BDS builds or SDK packages become available.
+    - cron: '19 8 * * 3-6'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-minecraft-targets
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.repository == 'bedrock-core/bds-runner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Test catalog selection and update safety
+        run: node --test scripts/minecraft-compatibility.test.mjs scripts/update-compatibility-targets.test.mjs
+
+      - name: Refresh complete Minecraft releases
+        run: node scripts/update-compatibility-targets.mjs --write --summary "$RUNNER_TEMP/minecraft-targets.md"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create or update target catalog pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ github.token }}
+          branch: automation/minecraft-compatibility-targets
+          base: ${{ github.event.repository.default_branch }}
+          add-paths: compatibility/targets.json
+          commit-message: Update Minecraft compatibility targets
+          title: Update Minecraft compatibility targets
+          body-path: ${{ runner.temp }}/minecraft-targets.md

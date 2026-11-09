@@ -1,0 +1,51 @@
+{
+  "major": 26,
+  "minimumDrop": 50,
+  "stableDrops": 2,
+  "previewDrops": 1,
+  "releases": [
+    {
+      "gameVersion": "1.26.52.3",
+      "gameChannel": "stable",
+      "vanillaData": "1.26.50",
+      "gameTest": "1.0.0-beta.1.26.50-stable",
+      "apis": {
+        "stable": { "server": "2.10.0", "serverUi": "2.2.0" },
+        "beta": {
+          "server": "2.11.0-beta.1.26.50-stable",
+          "serverUi": "2.3.0-beta.1.26.50-stable"
+        }
+      }
+    },
+    {
+      "gameVersion": "1.26.61.1",
+      "gameChannel": "stable",
+      "vanillaData": "1.26.60",
+      "gameTest": "1.0.0-beta.1.26.60-stable",
+      "apis": {
+        "stable": { "server": "2.11.0", "serverUi": "2.3.0" },
+        "beta": {
+          "server": "2.12.0-beta.1.26.60-stable",
+          "serverUi": "2.4.0-beta.1.26.60-stable"
+        }
+      }
+    },
+    {
+      "gameVersion": "1.26.70.23",
+      "gameChannel": "preview",
+      "vanillaData": "1.26.70-preview.23",
+      "gameTest": "1.0.0-beta.1.26.70-preview.23",
+      "apis": {
+        "stable": { "server": "2.11.0", "serverUi": "2.3.0" },
+        "rc": {
+          "server": "2.12.0-rc.1.26.70-preview.23",
+          "serverUi": "2.4.0-rc.1.26.70-preview.23"
+        },
+        "beta": {
+          "server": "2.13.0-beta.1.26.70-preview.23",
+          "serverUi": "2.5.0-beta.1.26.70-preview.23"
+        }
+      }
+    }
+  ]
+}

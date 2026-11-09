@@ -1,0 +1,137 @@
+name: Minecraft compatibility checks
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: Project profile (server, ui, or apps)
+        required: true
+        type: string
+      builder-ref:
+        description: Optional Builder source ref; empty uses the project's published Builder
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      targets: ${{ steps.targets.outputs.matrix }}
+      tooling-sha: ${{ steps.checkout.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        id: checkout
+        with:
+          repository: bedrock-core/bds-runner
+          ref: main
+          path: bds-runner
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Read supported game and API targets
+        id: targets
+        run: echo "matrix=$(node bds-runner/scripts/minecraft-compatibility.mjs matrix)" >> "$GITHUB_OUTPUT"
+
+  check:
+    needs: matrix
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.targets) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.project }}
+    env:
+      COMPATIBILITY_TARGET: ${{ matrix.id }}
+      COMPATIBILITY_PROJECT: ${{ inputs.project }}
+      COMPATIBILITY_BUILDER_PATH: ${{ inputs.project != 'ui' && inputs.builder-ref != '' && '../builder' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: ${{ inputs.project }}
+      - uses: actions/checkout@v7
+        with:
+          repository: bedrock-core/bds-runner
+          ref: ${{ needs.matrix.outputs.tooling-sha }}
+          path: bds-runner
+      - name: Identify sibling source dependencies
+        id: peers
+        run: node ../bds-runner/scripts/minecraft-compatibility.mjs peers "$COMPATIBILITY_PROJECT" . >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        if: steps.peers.outputs.server == 'true'
+        with:
+          repository: bedrock-core/server
+          ref: main
+          path: server
+      - uses: actions/checkout@v7
+        if: steps.peers.outputs.ui == 'true'
+        with:
+          repository: bedrock-core/ui
+          ref: main
+          path: ui
+      - uses: actions/checkout@v7
+        if: inputs.project != 'ui' && inputs.builder-ref != ''
+        with:
+          repository: bedrock-core/builder
+          ref: ${{ inputs.builder-ref }}
+          path: builder
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.13.0
+          package-manager-cache: false
+      - name: Install pinned Corepack before restoring the Yarn cache
+        run: |
+          npm install --global corepack@0.36.0
+          corepack enable yarn
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.13.0
+          cache: yarn
+          cache-dependency-path: ${{ inputs.project }}/yarn.lock
+      - name: Install selected Builder source
+        if: inputs.project != 'ui' && inputs.builder-ref != ''
+        working-directory: builder
+        run: yarn install --immutable
+      - name: Select SDKs and fixture manifest versions
+        run: node ../bds-runner/scripts/minecraft-compatibility.mjs prepare "$COMPATIBILITY_PROJECT" .
+      - name: Install sibling source dependencies with matching SDKs
+        run: node ../bds-runner/scripts/minecraft-compatibility.mjs prepare-peers "$COMPATIBILITY_PROJECT" .
+      - name: Install selected dependencies
+        id: install
+        env:
+          YARN_ENABLE_IMMUTABLE_INSTALLS: ${{ matrix.id == 'locked' && 'true' || 'false' }}
+        run: yarn install
+      - name: Build and check types
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node ../bds-runner/scripts/minecraft-compatibility.mjs check "$COMPATIBILITY_PROJECT" .
+      - name: Run unit tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node ../bds-runner/scripts/minecraft-compatibility.mjs unit "$COMPATIBILITY_PROJECT" .
+      - name: Cache exact Bedrock server build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.project != 'ui' && matrix.id != 'locked' }}
+        uses: actions/cache@v6
+        with:
+          path: ${{ inputs.project }}/.bds/cache
+          key: bds-${{ runner.os }}-${{ matrix.gameChannel }}-${{ matrix.gameVersion }}
+      - name: Run existing BDS GameTests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.project != 'ui' && matrix.id != 'locked' }}
+        run: node ../bds-runner/scripts/minecraft-compatibility.mjs native "$COMPATIBILITY_PROJECT" .
+      - name: Report coverage
+        if: ${{ always() }}
+        run: node ../bds-runner/scripts/minecraft-compatibility.mjs report "$COMPATIBILITY_PROJECT" .
+      - name: Upload compatibility evidence
+        if: ${{ always() && env.ACT != 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: compatibility-${{ inputs.project }}-${{ matrix.id }}
+          path: |
+            ${{ inputs.project }}/.bds/compatibility/**
+            ${{ inputs.project }}/.bds/logs/**
+          if-no-files-found: warn
+          retention-days: 14

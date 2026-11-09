@@ -38,3 +38,9 @@ jobs:
       - run: yarn typecheck
 
       - run: yarn test
+
+      - name: Test compatibility matrix and evidence handling
+        run: node --test scripts/minecraft-compatibility.test.mjs
+
+      - name: Test automatic compatibility target updates
+        run: node --test scripts/update-compatibility-targets.test.mjs
