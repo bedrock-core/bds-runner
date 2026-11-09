@@ -12,9 +12,8 @@ afterAll(async () => {
 });
 
 /**
- * Builds `<tmp>/<addon>/build/test/{BP,RP}` — the exact shape a Regolith `build-test` profile
- * exports, because the collision this suite guards against comes from that shape: every addon's
- * export is called `BP`.
+ * Builds `<tmp>/<addon>/build/test/{BP,RP}` with repeated pack directory names
+ * across addons. Deployment must distinguish their manifest identities.
  */
 async function addon(name: string, uuidPrefix: string): Promise<string> {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-packs-'));

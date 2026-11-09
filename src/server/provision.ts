@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { serverDir as serverDirFor, serverExecutable } from '../bds/paths';
 import { type PropertyValue, renderServerProperties } from './properties';
 
@@ -14,6 +16,8 @@ const ALLOWED_MODULES = [
 export interface ProvisionOptions {
   cacheDir: string;
   version: string;
+  /** Stable directory name under .bds/server; the version is used when omitted. */
+  instance?: string;
   levelName: string;
   port: number;
   watchdogHangMs: number;
@@ -47,13 +51,34 @@ async function exists(target: string): Promise<boolean> {
  * The world is reset separately; see `resetWorldChunks`.
  */
 export async function provisionServer(options: ProvisionOptions): Promise<ProvisionResult> {
-  const { cacheDir, version, levelName, port, watchdogHangMs, lanVisible = false, properties, fresh = false } = options;
+  const { cacheDir, version, instance, levelName, port, watchdogHangMs, lanVisible = false, properties, fresh = false } = options;
   const onProgress = options.onProgress ?? ((): void => {});
 
-  const dir = serverDirFor(version);
+  const dir = serverDirFor(version, instance);
+  const source = await fs.realpath(cacheDir);
+  const relative = path.relative(dir, source);
 
-  if (fresh) {
-    onProgress('removing the existing server tree (--fresh)');
+  if (relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) {
+    throw new Error('The BDS source cache must be outside the executable instance.');
+  }
+
+  const marker = path.join(dir, '.bc-bds-source.json');
+  const identity = instance === undefined
+    ? undefined
+    : {
+        version,
+        executable: await executableHash(path.join(source, serverExecutable())),
+      };
+  const previous = identity === undefined
+    ? undefined
+    : await fs.readFile(marker, 'utf8').then((text) => {
+        try { return JSON.parse(text) as typeof identity; } catch { return undefined; }
+      }, () => undefined);
+  const changed = identity !== undefined && await exists(path.join(dir, serverExecutable()))
+    && (previous?.version !== identity.version || previous?.executable !== identity.executable);
+
+  if (fresh || changed) {
+    onProgress(fresh ? 'removing the existing server tree (--fresh)' : `updating BDS instance ${instance} to ${version}`);
     await fs.rm(dir, { recursive: true, force: true });
   }
 
@@ -63,6 +88,8 @@ export async function provisionServer(options: ProvisionOptions): Promise<Provis
     await fs.cp(cacheDir, dir, { recursive: true });
 
     if (process.platform !== 'win32') { await fs.chmod(path.join(dir, serverExecutable()), 0o755); }
+
+    if (identity !== undefined) { await fs.writeFile(marker, `${JSON.stringify(identity)}\n`); }
   }
 
   await fs.writeFile(
@@ -83,6 +110,14 @@ export async function provisionServer(options: ProvisionOptions): Promise<Provis
   const created = !await exists(path.join(worldDir, 'level.dat'));
 
   return { serverDir: dir, worldDir, created };
+}
+
+async function executableHash(file: string): Promise<string> {
+  const hash = createHash('sha256');
+
+  for await (const chunk of createReadStream(file)) { hash.update(chunk); }
+
+  return hash.digest('hex');
 }
 
 /**

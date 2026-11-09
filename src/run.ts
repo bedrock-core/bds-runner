@@ -1,12 +1,13 @@
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { loadConfig, logsDir } from './bds/paths';
+import { loadConfig, logsDir, resolveInstance, serverDir as instanceDirectory } from './bds/paths';
 import { resolveBds } from './bds/resolve';
 import { parseReport, type Summary, summarise } from './report/parse';
 import { deployPacks, discoverPacks } from './server/packs';
 import { discardWorld, provisionServer, resetWorldChunks } from './server/provision';
 import { BdsServer } from './server/process';
 import { enableBetaApis, writeWorldPackReferences } from './server/world';
+import { withInstanceLock } from './server/lock';
 
 export interface RunOptions {
 
@@ -31,6 +32,8 @@ export interface RunOptions {
   allowScriptErrors?: boolean;
 
   levelName?: string;
+  /** Reuse .bds/server/<instance> instead of a version-named tree. */
+  instance?: string;
   port?: number;
   origin?: string;
   idleMs?: number;
@@ -116,6 +119,9 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
     channel: settings.bdsChannel,
     configPath: settings.configPath,
   });
+  const selected = resolveInstance(config, { instance: options.instance, port: options.port });
+
+  settings.port = selected.port;
   const bds = await resolveBds({
     onProgress,
     offline: settings.offline,
@@ -124,116 +130,120 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
   });
   const version = bds.version;
 
-  const { serverDir, worldDir, created } = await provisionServer({
-    cacheDir: bds.dir,
-    version: bds.source === 'env' ? path.basename(bds.dir) : version,
-    levelName: settings.levelName,
-    port: settings.port,
-    watchdogHangMs: settings.watchdogHangMs,
-    lanVisible: settings.keepAlive,
-    properties: config.properties,
-    fresh: settings.fresh,
-    onProgress,
-  });
+  return withInstanceLock(instanceDirectory(bds.source === 'env' ? path.basename(bds.dir) : version, selected.instance), async () => {
+    const { serverDir, worldDir, created } = await provisionServer({
+      cacheDir: bds.dir,
+      version: bds.source === 'env' ? path.basename(bds.dir) : version,
+      instance: selected.instance,
+      levelName: settings.levelName,
+      port: settings.port,
+      watchdogHangMs: settings.watchdogHangMs,
+      lanVisible: settings.keepAlive && config.properties['enable-lan-visibility'] !== false,
+      properties: config.properties,
+      fresh: settings.fresh,
+      onProgress,
+    });
 
-  const logFile = path.join(logsDir(), `${timestamp()}-${settings.tag.replace(/[^\w.-]+/g, '_')}.log`);
+    const logInstance = selected.instance === undefined ? '' : `${selected.instance}-`;
+    const logFile = path.join(logsDir(), `${timestamp()}-${logInstance}${settings.tag.replace(/[^\w.-]+/g, '_')}.log`);
 
-  // A world only exists after BDS has generated it, and experiments can only be set on a world that
-  // exists. So the very first run on a new server tree is two boots: one to create the world, one to
-  // run the tests with Beta APIs on. Every later run is a single boot.
-  if (created) {
-    onProgress('first run for this server: generating the world');
-    const bootstrap = new BdsServer({ serverDir, logFile: `${logFile}.bootstrap`, echo: settings.echo });
+    // A world only exists after BDS has generated it, and experiments can only be set on a world that
+    // exists. So the very first run on a new server tree is two boots: one to create the world, one to
+    // run the tests with Beta APIs on. Every later run is a single boot.
+    if (created) {
+      onProgress('first run for this server: generating the world');
+      const bootstrap = new BdsServer({ serverDir, logFile: `${logFile}.bootstrap`, echo: settings.echo });
 
-    // Disposed whichever way the boot ends: a fatal line during generation must not leave the
-    // server process behind, holding the port and the world.
-    try {
-      await bootstrap.start();
-      await bootstrap.waitForReady();
-      await bootstrap.stop();
+      // Disposed whichever way the boot ends: a fatal line during generation must not leave the
+      // server process behind, holding the port and the world.
+      try {
+        await bootstrap.start();
+        await bootstrap.waitForReady();
+        await bootstrap.stop();
 
-      const result = await enableBetaApis(worldDir, config.experiments);
+        const result = await enableBetaApis(worldDir, config.experiments);
 
-      onProgress(`enabled experiments: ${result.experiments.join(', ')}`);
-    } catch (error) {
+        onProgress(`enabled experiments: ${result.experiments.join(', ')}`);
+      } catch (error) {
       // level.dat can exist even when the initial boot or experiment write fails. Leaving it
       // behind makes provisioning treat the world as ready and skips the only point that enables
       // Beta APIs, so the next run fails until someone manually passes --fresh.
-      await discardWorld(worldDir);
-      onProgress('first boot did not finish; discarded the incomplete world');
+        await discardWorld(worldDir);
+        onProgress('first boot did not finish; discarded the incomplete world');
 
-      throw error;
+        throw error;
+      } finally {
+        await bootstrap.dispose();
+      }
+    } else if (config.experiments?.length) {
+      const result = await enableBetaApis(worldDir, config.experiments);
+
+      if (result.changed) { onProgress(`enabled experiments: ${result.experiments.join(', ')}`); }
+    }
+
+    await resetWorldChunks(worldDir);
+    const deployment = await deployPacks(serverDir, worldDir, packs);
+
+    if (deployment.resourceStackHash) {
+      onProgress(`resource stack: ${deployment.resourceStackHash} (${deployment.recordFile})`);
+    }
+
+    await writeWorldPackReferences(
+      worldDir,
+      deployment.packs.filter(p => p.kind === 'behavior').map(p => ({ packId: p.packId, version: p.version })),
+      deployment.packs.filter(p => p.kind === 'resource').map(p => ({ packId: p.packId, version: p.version })),
+    );
+
+    const server = new BdsServer({
+      serverDir,
+      logFile,
+      echo: settings.echo,
+    });
+
+    try {
+      await server.start();
+      await server.waitForReady();
+
+      // BDS prints the toggles it honoured. Checking the log rather than re-reading the NBT catches
+      // the case where the file says one thing and the engine did another.
+      if (!/Experiment\(s\) active:.*gtst/.test(server.transcript)) {
+        throw new Error(
+          'the server started without Beta APIs active, so /gametest does not exist. '
+          + `Delete the server tree and retry with --fresh, or check ${path.join(worldDir, 'level.dat')}.`,
+        );
+      }
+
+      server.send('gamerule sendcommandfeedback true');
+
+      // Without a loaded ticking area a playerless world does not simulate, and every test that waits
+      // for anything to move times out. `true` preloads it so the first test does not race the load.
+      server.send(`tickingarea add 0 -64 0 128 120 128 bc_test true`);
+      onProgress(`running ${settings.tag}`);
+      server.send(`execute in overworld positioned ${settings.origin} run gametest runset ${settings.tag}`);
+
+      await waitForRun(server, settings.idleMs, settings.wallMs, settings.expectRegistered);
+
+      // The verdicts are fixed here, before anything a person does in the held-open world can add
+      // to the transcript. Duration measures the tests, not how long someone spent looking at them.
+      const result = buildResult(server.transcript, settings, logFile, version, Date.now() - started);
+
+      settings.onResult?.(result);
+
+      if (settings.keepAlive && !server.exited) {
+        await holdForInspection(server, settings.port, onProgress);
+      }
+
+      return result;
     } finally {
-      await bootstrap.dispose();
+      await server.dispose();
+
+      // The plots stay while someone is looking; once the server is down the world is wiped.
+      if (settings.keepAlive) {
+        await resetWorldChunks(worldDir);
+        onProgress('world reset');
+      }
     }
-  } else if (config.experiments?.length) {
-    const result = await enableBetaApis(worldDir, config.experiments);
-
-    if (result.changed) { onProgress(`enabled experiments: ${result.experiments.join(', ')}`); }
-  }
-
-  await resetWorldChunks(worldDir);
-  const deployment = await deployPacks(serverDir, worldDir, packs);
-
-  if (deployment.resourceStackHash) {
-    onProgress(`resource stack: ${deployment.resourceStackHash} (${deployment.recordFile})`);
-  }
-
-  await writeWorldPackReferences(
-    worldDir,
-    deployment.packs.filter(p => p.kind === 'behavior').map(p => ({ packId: p.packId, version: p.version })),
-    deployment.packs.filter(p => p.kind === 'resource').map(p => ({ packId: p.packId, version: p.version })),
-  );
-
-  const server = new BdsServer({
-    serverDir,
-    logFile,
-    echo: settings.echo,
   });
-
-  try {
-    await server.start();
-    await server.waitForReady();
-
-    // BDS prints the toggles it honoured. Checking the log rather than re-reading the NBT catches
-    // the case where the file says one thing and the engine did another.
-    if (!/Experiment\(s\) active:.*gtst/.test(server.transcript)) {
-      throw new Error(
-        'the server started without Beta APIs active, so /gametest does not exist. '
-        + `Delete the server tree and retry with --fresh, or check ${path.join(worldDir, 'level.dat')}.`,
-      );
-    }
-
-    server.send('gamerule sendcommandfeedback true');
-
-    // Without a loaded ticking area a playerless world does not simulate, and every test that waits
-    // for anything to move times out. `true` preloads it so the first test does not race the load.
-    server.send(`tickingarea add 0 -64 0 128 120 128 bc_test true`);
-    onProgress(`running ${settings.tag}`);
-    server.send(`execute in overworld positioned ${settings.origin} run gametest runset ${settings.tag}`);
-
-    await waitForRun(server, settings.idleMs, settings.wallMs, settings.expectRegistered);
-
-    // The verdicts are fixed here, before anything a person does in the held-open world can add
-    // to the transcript. Duration measures the tests, not how long someone spent looking at them.
-    const result = buildResult(server.transcript, settings, logFile, version, Date.now() - started);
-
-    settings.onResult?.(result);
-
-    if (settings.keepAlive && !server.exited) {
-      await holdForInspection(server, settings.port, onProgress);
-    }
-
-    return result;
-  } finally {
-    await server.dispose();
-
-    // The plots stay while someone is looking; once the server is down the world is wiped.
-    if (settings.keepAlive) {
-      await resetWorldChunks(worldDir);
-      onProgress('world reset');
-    }
-  }
 }
 
 function buildResult(

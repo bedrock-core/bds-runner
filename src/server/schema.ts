@@ -194,6 +194,18 @@ export function buildConfigSchema(specs: PropertySpec[], serverVersion: string):
         enum: ['stable', 'preview'],
         default: 'stable',
       },
+      instance: {
+        type: 'string',
+        pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]*$',
+        description: 'Stable executable directory name under .bds/server. Defaults to the selected version.',
+      },
+      instances: {
+        type: 'object',
+        minProperties: 1,
+        propertyNames: { pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]*$' },
+        additionalProperties: { type: 'integer', minimum: 1024, maximum: 65534 },
+        description: 'Named instances and their fixed IPv4 UDP ports. IPv6 uses the following port; pairs must not overlap.',
+      },
       experiments: {
         type: 'array',
         description: 'Additional experiment NBT keys enabled on the generated test world.',

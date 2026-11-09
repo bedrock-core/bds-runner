@@ -9,14 +9,16 @@ export {
   pinnedVersion,
   platformKey,
   projectRoot,
+  resolveInstance,
   type RunnerConfig,
   schemaFile,
   serverDir,
+  validateInstanceName,
   type VersionOverride,
 } from './bds/paths';
 export { type DetectedPin, detectFloor, detectPin, writeDetectedConfig } from './bds/detect';
 export { type Channel, fetchBds } from './bds/download';
-export { type OptimizedPack, type OptimizeOptions, type OptimizeResult, optimizePacks } from './bds/optimize';
+export { type OptimizedPack, type OptimizeMode, type OptimizeOptions, type OptimizeResult, optimizePacks } from './bds/optimize';
 export {
   type BdsBuild,
   channelOf,

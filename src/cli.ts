@@ -4,16 +4,18 @@ import {
   cacheDir,
   CONFIG_FILE,
   findConfig,
+  loadConfig,
   pinnedVersion,
   platformKey,
   projectRoot,
+  resolveInstance,
   schemaFile,
   serverDir,
   serverExecutable,
   type VersionOverride,
 } from './bds/paths';
 import { detectPin } from './bds/detect';
-import { optimizePacks } from './bds/optimize';
+import { type OptimizeMode, optimizePacks } from './bds/optimize';
 import { channelOf, fetchIndex, LATEST } from './bds/versions';
 import { resolveBds } from './bds/resolve';
 import { formatSummary } from './report/summary';
@@ -33,7 +35,7 @@ const USAGE = `
 bc-bds — run Minecraft GameTests on a Bedrock Dedicated Server
 
   bc-bds run --packs <dir> --tag <tag> [options]
-  bc-bds optimize --packs <dir> --out <dir> [--unpack]
+  bc-bds optimize --packs <dir> --out <dir> [--mode <format> | --unpack]
   bc-bds fetch                 download and cache the server
   bc-bds where                 print the resolved server directory and version
 
@@ -41,6 +43,7 @@ Which server build (any command). Defaults to the newest stable build:
   --bds-version <v>            an exact build, or "latest"
   --bds-channel <c>            stable | preview
   --config <path>              a bds-runner.json to read instead of searching
+  --instance <name>            executable instance name (default: selected build version)
 
 Options for \`run\`:
   --packs <dir>                single pack or a folder of built packs; repeatable, so
@@ -60,14 +63,14 @@ Options for \`run\`:
   --quiet                      do not echo server output
   --json <path>                also write the result as JSON
 
-Options for \`optimize\` — pack the loose files of built packs into archives, the way
-the game ships its own. A converted pack needs a 1.26.40 or newer client:
+Options for \`optimize\` — convert built packs using the selected BDS build:
   --packs <dir>                directory holding one subfolder per pack;
                                build/ is already this shape                (required)
   --out <dir>                  where the converted packs are written; has to sit
                                outside --packs                             (required)
-  --unpack                     the other direction: expand a converted tree back into
-                               loose files. JSON comes back minified, not as authored
+  --mode <format>              brpak | brarchive | unpacked; defaults to the server's
+                               default format. BRPAK requires a compatible client
+  --unpack                     alias for --mode unpacked, including older BDS builds
   --verbose                    echo the converter's own per-file lines
   --offline                    never download; fail if the cache is cold
 `.trimStart();
@@ -157,6 +160,7 @@ async function commandRun(args: Args): Promise<number> {
     knownFailures,
     origin: first(args, 'origin'),
     port: number(args, 'port'),
+    instance: first(args, 'instance'),
     idleMs: idle === undefined ? undefined : idle * 1000,
     wallMs: timeout === undefined ? undefined : timeout * 1000,
     fresh: args.flags.has('fresh'),
@@ -224,9 +228,16 @@ async function commandOptimize(args: Args): Promise<number> {
   }
 
   const bds = versionOverride(args);
+  const mode = first(args, 'mode');
+
+  if (args.flags.has('mode') || (mode !== undefined && !['brpak', 'brarchive', 'unpacked'].includes(mode))) {
+    throw new Error('--mode must be brpak, brarchive or unpacked');
+  }
+
   const result = await optimizePacks({
     packsDir,
     outDir,
+    mode: mode as OptimizeMode | undefined,
     unpack: args.flags.has('unpack'),
     echo: args.flags.has('verbose'),
     offline: args.flags.has('offline'),
@@ -245,17 +256,24 @@ async function commandOptimize(args: Args): Promise<number> {
         Math.abs(100 - (pack.sizeAfter / pack.sizeBefore) * 100).toFixed(1)}%)`;
 
     process.stdout.write(`  ${pack.name} — ${bytes(pack.sizeBefore)} → ${bytes(pack.sizeAfter)}${delta}\n`);
-    process.stdout.write(result.unpacked
-      ? `      ${pack.entries} file(s) extracted, ${pack.copied} copied\n`
-      : `      ${pack.entries} archived (${bytes(pack.bytesBefore)} → ${bytes(pack.bytesAfter)})`
-        + `${pack.stubs > 0 ? `, ${pack.stubs} listed only` : ''}`
-        + `, ${pack.copied} copied out\n`);
+
+    if (pack.statisticsAvailable) {
+      process.stdout.write(pack.mode === 'brpak'
+        ? `      ${pack.entries} BRPAK entries\n`
+        : result.unpacked
+          ? `      ${pack.entries} file(s) extracted, ${pack.copied} copied\n`
+          : `      ${pack.entries} archived (${bytes(pack.bytesBefore)} → ${bytes(pack.bytesAfter)})`
+            + `${pack.stubs > 0 ? `, ${pack.stubs} listed only` : ''}`
+            + `, ${pack.copied} copied out\n`);
+    }
   }
 
-  process.stdout.write(`\n  BDS ${result.bdsVersion}, ${(result.durationMs / 1000).toFixed(1)}s → ${result.outDir}\n`);
+  process.stdout.write(`\n  ${result.mode}, BDS ${result.bdsVersion}, ${(result.durationMs / 1000).toFixed(1)}s → ${result.outDir}\n`);
 
   if (!result.unpacked) {
-    process.stdout.write('  Converted packs require a 1.26.40 or newer client.\n');
+    process.stdout.write(result.mode === 'brpak'
+      ? '  BRPAK output requires a client that supports this archive format.\n'
+      : '  BRARCHIVE output requires a 1.26.40 or newer client.\n');
   }
 
   process.stdout.write('\n');
@@ -279,6 +297,7 @@ async function commandFetch(args: Args): Promise<number> {
 /** Reports where the server will come from and what upstream currently offers. An unreachable index is an error. */
 async function commandWhere(args: Args): Promise<number> {
   const override = versionOverride(args);
+  const selected = resolveInstance(loadConfig(override), { instance: first(args, 'instance'), port: number(args, 'port') });
   const platform = platformKey();
   const config = override.configPath ?? findConfig();
 
@@ -321,7 +340,8 @@ async function commandWhere(args: Args): Promise<number> {
 
   process.stdout.write(`resolved: ${target}\n`);
   process.stdout.write(`cache:    ${cache}${cached ? '' : ' (not downloaded yet)'}\n`);
-  process.stdout.write(`server:   ${serverDir(target)}\n`);
+  process.stdout.write(`server:   ${serverDir(target, selected.instance)}\n`);
+  process.stdout.write(`ports:    ${selected.port}/${selected.port + 1} (UDP)\n`);
   process.stdout.write(`schema:   ${schemaFile()}${cached ? '' : ' (written on first fetch)'}\n`);
   process.stdout.write(`\nupstream: stable ${index.stable}, preview ${index.preview} `);
   process.stdout.write(`(${index.versions.length} stable and ${index.previewVersions.length} preview builds indexed)\n`);
@@ -341,6 +361,8 @@ async function commandWhere(args: Args): Promise<number> {
 
 export async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
+
+  if (args.flags.has('instance')) { throw new Error('--instance requires a name.'); }
 
   switch (args.command) {
     case 'run': return commandRun(args);

@@ -47,6 +47,14 @@ describe('server:schema parse', () => {
 });
 
 describe('server:schema build', () => {
+  it('keeps the published editor schema aligned with runner options', () => {
+    const published = JSON.parse(readFileSync(path.join(here, '../../../schemas/config.schema.json'), 'utf8')) as Schema;
+    const generated = buildConfigSchema([], 'unselected');
+
+    expect(published.properties).toEqual(generated.properties);
+    expect(published.additionalProperties).toBe(generated.additionalProperties);
+  });
+
   it('types booleans, enums, bounded integers and strings from the allowed-values wording', () => {
     const props = propertySchemas();
 

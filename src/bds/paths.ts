@@ -54,9 +54,19 @@ export function cacheDir(version: string, platform = platformKey()): string {
   return path.join(bdsHome(), 'cache', version, platform);
 }
 
-/** The tree the server runs in: a copy of the cache, kept across runs of the same version. */
-export function serverDir(version: string): string {
-  return path.join(bdsHome(), 'server', version);
+/** A named instance keeps its path across builds; otherwise the version names the server tree. */
+export function serverDir(version: string, instance?: string): string {
+  if (instance !== undefined) { validateInstanceName(instance); }
+
+  return path.join(bdsHome(), 'server', instance ?? version);
+}
+
+/** Instance names are portable directory names on Windows and Linux. */
+export function validateInstanceName(name: string): void {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name) || name.endsWith('.')
+    || /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(name)) {
+    throw new Error(`Invalid BDS instance name: ${JSON.stringify(name)}`);
+  }
 }
 
 export function logsDir(): string {
@@ -93,6 +103,10 @@ export interface PinnedVersion {
 
 /** The project's config file, resolved against flags and environment. */
 export interface RunnerConfig extends PinnedVersion {
+  /** Default named instance. Without it, the selected version names the server tree. */
+  instance?: string;
+  /** Configured instances and their fixed IPv4 UDP ports. IPv6 uses the following port. */
+  instances?: Record<string, number>;
   /** `server.properties` overrides. Keys and types come from the selected server; see `schemaFile`. */
   properties: Record<string, string | number | boolean>;
   /** Additional experiment NBT keys enabled on the runner's generated world. */
@@ -152,10 +166,46 @@ function readConfig(file: string): Partial<RunnerConfig> {
     throw new Error(`${file} must contain a JSON object`);
   }
 
-  const { version, channel, properties, experiments } = parsed as Record<string, unknown>;
+  const { version, channel, properties, experiments, instance, instances } = parsed as Record<string, unknown>;
 
   if (version !== undefined && typeof version !== 'string') {
     throw new Error(`${file}: "version" must be a string`);
+  }
+
+  if (instance !== undefined) {
+    if (typeof instance !== 'string') { throw new Error(`${file}: "instance" must be a string`); }
+
+    validateInstanceName(instance);
+  }
+
+  if (instances !== undefined) {
+    if (!instances || typeof instances !== 'object' || Array.isArray(instances)) {
+      throw new Error(`${file}: "instances" must map instance names to UDP ports`);
+    }
+
+    const ports = new Set<number>();
+    const names = new Set<string>();
+
+    if (Object.keys(instances).length === 0) { throw new Error(`${file}: "instances" must not be empty`); }
+
+    for (const [name, port] of Object.entries(instances)) {
+      validateInstanceName(name);
+
+      if (names.has(name.toLowerCase())) { throw new Error(`${file}: instance names must be unique on Windows and Linux`); }
+
+      names.add(name.toLowerCase());
+
+      if (!Number.isInteger(port) || (port as number) < 1024 || (port as number) > 65534) {
+        throw new Error(`${file}: instance "${name}" needs a port between 1024 and 65534`);
+      }
+
+      if (ports.has(port as number) || ports.has((port as number) + 1)) {
+        throw new Error(`${file}: instance UDP port pairs overlap`);
+      }
+
+      ports.add(port as number);
+      ports.add((port as number) + 1);
+    }
   }
 
   if (experiments !== undefined && (!Array.isArray(experiments) || experiments.some(key => typeof key !== 'string'
@@ -168,6 +218,8 @@ function readConfig(file: string): Partial<RunnerConfig> {
     version,
     channel: asChannel(channel, `${file}: "channel"`),
     properties: asProperties(properties, `${file}: "properties"`),
+    ...instance === undefined ? {} : { instance: instance },
+    ...instances === undefined ? {} : { instances: instances as Record<string, number> },
     ...experiments === undefined ? {} : { experiments: experiments as string[] },
   };
 }
@@ -190,8 +242,33 @@ export function loadConfig(override: VersionOverride = {}): RunnerConfig {
       ?? config.channel
       ?? DEFAULTS.channel,
     properties: config.properties ?? {},
+    ...config.instance === undefined ? {} : { instance: config.instance },
+    ...config.instances === undefined ? {} : { instances: config.instances },
     ...config.experiments === undefined ? {} : { experiments: config.experiments },
   };
+}
+
+/** Configured instances keep both their executable path and their assigned UDP port pair. */
+export function resolveInstance(config: RunnerConfig, options: { instance?: string; port?: number } = {}): { instance?: string; port: number } {
+  const instance = options.instance ?? config.instance;
+
+  if (instance !== undefined) { validateInstanceName(instance); }
+
+  const assigned = instance !== undefined && Object.hasOwn(config.instances ?? {}, instance) ? config.instances?.[instance] : undefined;
+
+  if (config.instances && assigned === undefined) {
+    throw new Error('Choose an instance declared in bds-runner.json ("instance" or --instance).');
+  }
+
+  if (assigned !== undefined && options.port !== undefined && options.port !== assigned) {
+    throw new Error(`Instance "${instance}" uses UDP ports ${assigned}/${assigned + 1}; --port cannot change its assignment.`);
+  }
+
+  const port = assigned ?? options.port ?? 19140;
+
+  if (!Number.isInteger(port) || port < 1 || port > 65534) { throw new Error('BDS needs a port between 1 and 65534, with the following port available for IPv6.'); }
+
+  return { ...instance === undefined ? {} : { instance }, port };
 }
 
 /** Which build to run. See `loadConfig`. */
