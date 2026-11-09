@@ -12,6 +12,9 @@ on:
         default: ''
         type: string
 
+env:
+  ACT: ''
+
 permissions:
   contents: read
 

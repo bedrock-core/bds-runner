@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "bds-runner.json",
+  "description": "bc-bds runner options and scalar server-property overrides. The locally generated schema adds the selected server's property documentation and types.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": {
+      "type": "string",
+      "description": "An exact build such as 1.26.45.1, or \"latest\".",
+      "default": "latest"
+    },
+    "channel": { "enum": ["stable", "preview"], "default": "stable" },
+    "instance": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
+      "description": "Stable executable directory name under .bds/server. Defaults to the selected version."
+    },
+    "instances": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$" },
+      "additionalProperties": { "type": "integer", "minimum": 1024, "maximum": 65534 },
+      "description": "Named instances and their fixed IPv4 UDP ports. IPv6 uses the following port; pairs must not overlap."
+    },
+    "experiments": {
+      "type": "array",
+      "description": "Additional experiment NBT keys enabled on the generated test world.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*$",
+        "not": { "enum": ["experiments_ever_used", "saved_with_toggled_experiments"] }
+      },
+      "uniqueItems": true
+    },
+    "properties": {
+      "type": "object",
+      "description": "Overrides written into server.properties before every run.",
+      "properties": {},
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    }
+  },
+  "additionalProperties": false
+}
