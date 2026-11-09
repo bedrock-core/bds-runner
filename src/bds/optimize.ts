@@ -1,18 +1,13 @@
 // Pack optimization: the server's own converter, driven as a build step.
 //
-// `bedrock_server PackOptimizerConfigPath=<config>` reads a directory whose subdirectories are
-// each one pack, minifies their JSON, packs each folder into a `.brarchive` under `__brarchive/`,
-// stamps `pack_optimization_version` into the manifest, and exits without ever serving. `unpack`
-// runs it backwards, expanding the archives into loose files again.
-//
-// A converted pack requires a 1.26.40 or newer client. The converter does not raise
-// `min_engine_version`, so nothing in the pack tells an older player why it failed to load.
+// `bedrock_server PackOptimizerConfigPath=<config>` converts packs and exits without serving.
+// The selected server controls format support and content upgrades.
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import { bdsHome, serverExecutable } from './paths';
+import { bdsHome, pinnedVersion, serverExecutable } from './paths';
 import { resolveBds } from './resolve';
 
 /** The converter reports this when it could not process the packs. */
@@ -24,10 +19,12 @@ const SERVING_RE = /\bServer started\b/;
 /** A conversion that has not finished by now is not going to; the converter is otherwise seconds. */
 const DEFAULT_WALL_MS = 10 * 60_000;
 
+export type OptimizeMode = 'brpak' | 'brarchive' | 'unpacked';
+
 export interface OptimizeOptions {
 
   /**
-   * Directory whose subdirectories are each one pack. Regolith's `build/` is already this shape:
+   * Directory whose subdirectories are each one pack:
    * one folder per pack, each with its own manifest.
    */
   packsDir: string;
@@ -35,7 +32,10 @@ export interface OptimizeOptions {
   /** Where the converted packs are written. Created as needed, and never overlapping `packsDir`. */
   outDir: string;
 
-  /** Expand an already-converted tree back into loose files instead of converting one. */
+  /** Output format. When omitted, use the selected server's default. */
+  mode?: OptimizeMode;
+
+  /** Alias for `mode: 'unpacked'`, including the legacy converter's unpack option. */
   unpack?: boolean;
 
   /** Echo the converter's own per-file lines. The statistics are collected either way. */
@@ -57,7 +57,13 @@ export interface OptimizeOptions {
 export interface OptimizedPack {
   name: string;
 
-  /** Files written into an archive. */
+  /** Output format detected from the written files. */
+  mode: OptimizeMode;
+
+  /** Whether the converter supplied attributable per-pack detail. Disk sizes are always measured. */
+  statisticsAvailable: boolean;
+
+  /** Archive/extraction entries reported for this pack; unavailable counters remain zero. */
   entries: number;
 
   /**
@@ -88,6 +94,9 @@ export interface OptimizeResult {
   bdsVersion: string;
   outDir: string;
   durationMs: number;
+
+  /** The output format, including the detected server default. */
+  mode: OptimizeMode;
 
   /** `unpack`, rather than a conversion. */
   unpacked: boolean;
@@ -120,7 +129,27 @@ function contains(a: string, b: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-/** The pack directories the converter will read: every subdirectory holding a manifest. */
+/** A BRPAK pack has its manifest inside the archive. */
+async function hasBrpak(packDir: string): Promise<boolean> {
+  const entries = await fs.readdir(packDir, { withFileTypes: true }).catch(() => []);
+
+  return entries.some(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.brpak'));
+}
+
+/** Whether a directory contains a matching file, including nested paths. */
+async function hasFiles(dir: string, suffix = ''): Promise<boolean> {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.toLowerCase().endsWith(suffix)) { return true; }
+
+    if (entry.isDirectory() && await hasFiles(path.join(dir, entry.name), suffix)) { return true; }
+  }
+
+  return false;
+}
+
+/** The immediate pack directories, with either a loose manifest or a BRPAK archive. */
 async function findPacks(packsDir: string): Promise<string[]> {
   const entries = await fs.readdir(packsDir, { withFileTypes: true });
   const found: string[] = [];
@@ -130,7 +159,8 @@ async function findPacks(packsDir: string): Promise<string[]> {
 
     const manifest = path.join(packsDir, entry.name, 'manifest.json');
 
-    if (await fs.access(manifest).then(() => true, () => false)) { found.push(entry.name); }
+    if (await fs.access(manifest).then(() => true, () => false)
+      || await hasBrpak(path.join(packsDir, entry.name))) { found.push(entry.name); }
   }
 
   return found.sort();
@@ -138,6 +168,8 @@ async function findPacks(packsDir: string): Promise<string[]> {
 
 /** Whether a pack has already been through the converter. */
 async function isOptimized(packDir: string): Promise<boolean> {
+  if (await hasBrpak(packDir)) { return true; }
+
   try {
     const raw = await fs.readFile(path.join(packDir, 'manifest.json'), 'utf-8');
     const manifest = JSON.parse(raw) as { header?: { pack_optimization_version?: unknown } };
@@ -146,6 +178,37 @@ async function isOptimized(packDir: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Output modes were introduced in Preview 26.70.23 and the subsequent stable line. */
+function supportsModes(version: string, channel: 'stable' | 'preview'): boolean | undefined {
+  const match = /^(?:1\.)?(\d+)\.(\d+)\.(\d+)$/.exec(version);
+
+  if (!match) { return undefined; }
+
+  const [, year, drop, revision] = match.map(Number);
+
+  return year > 26 || (year === 26 && (drop > 70
+    || (drop === 70 && (channel === 'stable' || revision >= 23))));
+}
+
+async function outputMode(packDir: string, expected?: OptimizeMode): Promise<OptimizeMode> {
+  if (await hasBrpak(packDir)) { return 'brpak'; }
+
+  if (await hasFiles(path.join(packDir, '__brarchive'), '.brarchive')) { return 'brarchive'; }
+
+  if (!await fs.access(path.join(packDir, 'manifest.json')).then(() => true, () => false)) {
+    throw new Error(`the converter did not write a pack at ${packDir}`);
+  }
+
+  // A pack containing only root files has nothing to archive.
+  const entries = await fs.readdir(packDir, { withFileTypes: true });
+  const nestedFiles = await Promise.all(entries.filter(entry => entry.isDirectory())
+    .map(entry => hasFiles(path.join(packDir, entry.name))));
+
+  return expected === 'brarchive' && !nestedFiles.some(Boolean) && await isOptimized(packDir)
+    ? 'brarchive'
+    : 'unpacked';
 }
 
 /**
@@ -158,7 +221,9 @@ class Tally {
   readonly packs: OptimizedPack[] = [];
   #current: OptimizedPack | undefined;
 
-  constructor(private readonly outDir: string) {}
+  constructor(private readonly outDir: string, names: string[]) {
+    for (const name of names) { this.#ensure(name); }
+  }
 
   #ensure(name: string): OptimizedPack {
     const existing = this.packs.find(pack => pack.name === name);
@@ -167,6 +232,8 @@ class Tally {
 
     const pack: OptimizedPack = {
       name,
+      mode: 'unpacked',
+      statisticsAvailable: false,
       entries: 0,
       stubs: 0,
       bytesBefore: 0,
@@ -186,8 +253,21 @@ class Tally {
     // read rather than the paths either side of " to ", which a directory name could contain.
     const baked = /, archive root (.+)$/.exec(text);
 
-    if (text.startsWith('bake pack ') && baked?.[1] !== undefined) {
+    if (/^(?:bake|optimize) pack /.test(text) && baked?.[1] !== undefined) {
       this.#current = this.#ensure(path.basename(path.dirname(baked[1])));
+
+      return;
+    }
+
+    const brpak = /^wrote brpak (.+) with (\d+) entries$/.exec(text);
+
+    if (brpak) {
+      const pack = this.#owner(brpak[1]);
+
+      if (pack) {
+        pack.entries = Number(brpak[2]);
+        pack.statisticsAvailable = true;
+      }
 
       return;
     }
@@ -195,9 +275,12 @@ class Tally {
     const entry = /^add archive entry (.+) with size (\d+) vs (\d+)$/.exec(text);
 
     if (entry) {
-      const pack = this.#current ?? this.#ensure('(unknown)');
+      const pack = this.#current;
       const after = Number(entry[2]);
 
+      if (!pack) { return; }
+
+      pack.statisticsAvailable = true;
       pack.entries++;
 
       // A stub lists the file and carries none of it; the file itself is copied out unchanged.
@@ -219,13 +302,17 @@ class Tally {
 
       if (owner !== undefined) { this.#current = owner; }
 
-      (this.#current ?? this.#ensure('(unknown)')).copied++;
+      if (this.#current) {
+        this.#current.copied++;
+        this.#current.statisticsAvailable = true;
+      }
 
       return;
     }
 
-    if (text.startsWith('extracted ')) {
-      (this.#current ?? this.#ensure('(unknown)')).entries++;
+    if (text.startsWith('extracted ') && this.#current) {
+      this.#current.entries++;
+      this.#current.statisticsAvailable = true;
     }
   }
 
@@ -249,11 +336,21 @@ class Tally {
  */
 export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeResult> {
   const {
-    unpack = false,
     echo = false,
     wallMs = DEFAULT_WALL_MS,
     onProgress = (): void => {},
   } = options;
+  const mode = options.mode ?? (options.unpack ? 'unpacked' : undefined);
+
+  if (mode !== undefined && !['brpak', 'brarchive', 'unpacked'].includes(mode)) {
+    throw new Error(`mode must be brpak, brarchive or unpacked, got ${JSON.stringify(mode)}`);
+  }
+
+  if (options.unpack && mode !== 'unpacked') {
+    throw new Error('--unpack cannot be combined with a different --mode');
+  }
+
+  const unpack = mode === 'unpacked';
 
   const packsDir = path.resolve(options.packsDir);
   const outDir = path.resolve(options.outDir);
@@ -272,19 +369,7 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
   const names = await findPacks(packsDir);
 
   if (names.length === 0) {
-    throw new Error(`no packs in ${packsDir} — a pack is a subdirectory with a manifest.json in it.`);
-  }
-
-  // Converting an already-converted pack is not a defined operation, and the failure mode is a
-  // pack that silently stops loading. Unpacking one is exactly the point.
-  const states = await Promise.all(names.map(name => isOptimized(path.join(packsDir, name))));
-  const wrong = names.filter((_, index) => states[index] !== unpack);
-
-  if (wrong.length > 0) {
-    throw new Error(unpack
-      ? `not converted, so there is nothing to unpack: ${wrong.join(', ')}`
-      : `already converted (the manifest carries pack_optimization_version): ${wrong.join(', ')}. `
-        + 'Build again, or run with --unpack first.');
+    throw new Error(`no packs in ${packsDir} — each pack needs a manifest.json or a .brpak archive in its subdirectory.`);
   }
 
   const resolved = await resolveBds({
@@ -294,6 +379,28 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
     offline: options.offline,
     onProgress,
   });
+  const pinned = pinnedVersion({ version: options.bdsVersion, channel: options.bdsChannel, configPath: options.configPath });
+  const modern = supportsModes(resolved.version.startsWith('unknown') ? pinned.version : resolved.version, pinned.channel);
+
+  if (mode === 'brpak' && modern === false) {
+    throw new Error(`BDS ${resolved.version} does not support brpak output; select Preview 1.26.70.23 or a later supported build.`);
+  }
+
+  if (modern === undefined && options.mode !== undefined) {
+    throw new Error('Pack format selection requires an exact --bds-version when BC_BDS_PATH does not identify a build.');
+  }
+
+  // Converting an already-converted pack is not a defined operation, and the failure mode is a
+  // pack that silently stops loading. Unpacking one is exactly the point.
+  const states = await Promise.all(names.map(name => isOptimized(path.join(packsDir, name))));
+  const wrong = modern === true ? [] : names.filter((_, index) => states[index] !== unpack);
+
+  if (wrong.length > 0) {
+    throw new Error(unpack
+      ? `not converted, so there is nothing to unpack: ${wrong.join(', ')}`
+      : `already converted (the manifest carries pack_optimization_version): ${wrong.join(', ')}. `
+        + 'Build again, or run with --unpack first.');
+  }
 
   // A previous run's output for these packs, so a pack that no longer emits a file does not keep
   // the old one. Only the directories about to be written are touched.
@@ -311,8 +418,7 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
     input_directory: packsDir.replaceAll('\\', '/'),
     output_directory: outDir.replaceAll('\\', '/'),
 
-    // Undocumented, and the only way back: it expands the archives into loose files again.
-    ...unpack ? { unpack: true } : {},
+    ...modern ? (mode === undefined ? {} : { mode }) : (unpack ? { unpack: true } : {}),
 
     // Always on. The per-file lines are the only record of what anything weighed before, so they
     // are collected whatever the caller wants echoed.
@@ -322,7 +428,7 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
   onProgress(`${unpack ? 'unpacking' : 'optimizing'} ${names.length} pack(s) with BDS ${resolved.version}`);
 
   const started = Date.now();
-  const tally = new Tally(outDir);
+  const tally = new Tally(outDir, names);
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -359,7 +465,7 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
               child.kill();
               reject(new Error(
                 `BDS ${resolved.version} ignored PackOptimizerConfigPath and started serving instead. `
-                + 'Pack optimization is documented for Windows builds.',
+                + 'Select a build and platform that support pack optimization.',
               ));
             }
 
@@ -379,7 +485,7 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
         reject(error);
       });
 
-      child.once('exit', (code) => {
+      child.once('close', (code) => {
         clearTimeout(timer);
 
         if (code === 0) {
@@ -397,9 +503,23 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
     await fs.rm(configFile, { force: true });
   }
 
+  const expected = mode ?? (modern === true ? 'brpak' : modern === false ? 'brarchive' : undefined);
+
   for (const pack of tally.packs) {
+    pack.mode = await outputMode(path.join(outDir, pack.name), expected);
+
+    if (expected !== undefined && pack.mode !== expected) {
+      throw new Error(`BDS ${resolved.version} wrote ${pack.mode} output for ${pack.name}, expected ${expected}.`);
+    }
+
     pack.sizeBefore = await dirSize(path.join(packsDir, pack.name));
     pack.sizeAfter = await dirSize(path.join(outDir, pack.name));
+  }
+
+  const output = tally.packs[0].mode;
+
+  if (tally.packs.some(pack => pack.mode !== output)) {
+    throw new Error('the converter wrote inconsistent output formats across packs');
   }
 
   return {
@@ -407,6 +527,7 @@ export async function optimizePacks(options: OptimizeOptions): Promise<OptimizeR
     bdsVersion: resolved.version,
     outDir,
     durationMs: Date.now() - started,
-    unpacked: unpack,
+    mode: output,
+    unpacked: output === 'unpacked',
   };
 }
