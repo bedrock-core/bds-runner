@@ -1,5 +1,17 @@
 # @bedrock-core/bds-runner
 
+## 0.3.0
+
+### Minor Changes
+
+- [`62915b2`](https://github.com/bedrock-core/bds-runner/commit/62915b22b16bc977ad5ed583f023bae7533dbda9) Thanks [@drav0011](https://github.com/drav0011)! - Support named server instances with fixed UDP port pairs. Refresh named instances when the selected build changes while retaining their executable path.
+
+- [`dcbbab4`](https://github.com/bedrock-core/bds-runner/commit/dcbbab416afce516616adafa1777b93c98875ade) Thanks [@drav0011](https://github.com/drav0011)! - Support BRPAK, BRARCHIVE and unpacked PackOptimizer output, detect written pack formats and measure every output pack independently of converter logs. Preserve legacy unpacking on older BDS builds.
+
+### Patch Changes
+
+- [`09e48aa`](https://github.com/bedrock-core/bds-runner/commit/09e48aa171244bea7cfb181375a6558bb9fab7ef) Thanks [@drav0011](https://github.com/drav0011)! - Export a standalone editor schema for runner options alongside the server-specific generated schema.
+
 ## 0.2.1
 
 ### Patch Changes
