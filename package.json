@@ -53,7 +53,7 @@
 		"fetch": "node bin/bc-bds.mjs fetch",
 		"where": "node bin/bc-bds.mjs where",
 		"changeset": "changeset",
-		"version-packages": "changeset version",
+		"version-packages": "changeset version && yarn install --mode=update-lockfile",
 		"release": "yarn lint && yarn typecheck && yarn test && node scripts/publish-tarballs.mjs && changeset tag",
 		"clean": "node scripts/clean.mjs"
 	},
