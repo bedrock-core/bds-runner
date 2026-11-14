@@ -119,6 +119,13 @@ describe('server:properties overrides', () => {
     expect(() => renderServerProperties({ ...base, overrides: { 'level-name': 'x' } })).toThrow(/managed by/);
   });
 
+  it('permits authenticated connections through server property overrides', () => {
+    expect(renderServerProperties(base)).toContain('online-mode=false');
+    expect(renderServerProperties({ ...base, overrides: { 'online-mode': false } })).toContain('online-mode=false');
+    expect(renderServerProperties({ ...base, overrides: { 'online-mode': true } })).toContain('online-mode=true');
+    expect(MANAGED_PROPERTIES.has('online-mode')).toBe(false);
+  });
+
   it('keeps LAN visibility on for keep-alive even if the config turns it off', () => {
     const text = renderServerProperties({ ...base, lanVisible: true, overrides: { 'enable-lan-visibility': false } });
 

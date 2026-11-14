@@ -8,6 +8,11 @@ import { discardWorld, provisionServer, resetWorldChunks } from './server/provis
 import { BdsServer } from './server/process';
 import { enableBetaApis, writeWorldPackReferences } from './server/world';
 import { withInstanceLock } from './server/lock';
+import { ScriptProfiler, type ScriptProfile } from './server/profile';
+import { connectDebugger } from './server/debugger';
+import type { PropertyValue } from './server/properties';
+import { testSelection } from './server/test-selection';
+import { summariseSelection } from './report/selection';
 
 export interface RunOptions {
 
@@ -15,7 +20,15 @@ export interface RunOptions {
   packsDirs: string | readonly string[];
 
   /** The gametest tag to run, e.g. `bc:constructs:m3`. */
-  tag: string;
+  tag?: string;
+  /** Run one registered test by its class:name identifier. */
+  test?: string;
+  /** Run selected tests sequentially in one server session. */
+  tests?: readonly string[];
+  /** Run the default native test set for the deployed packs. */
+  all?: boolean;
+  /** Cooperatively stop this run's server when cancelled. */
+  signal?: AbortSignal;
 
   /** Fail if the engine announces a different number of tests. Catches silently dropped suites. */
   expectRegistered?: number;
@@ -48,6 +61,15 @@ export interface RunOptions {
   bdsChannel?: 'stable' | 'preview';
   configPath?: string;
 
+  /** Per-run server properties, overriding the project configuration. */
+  properties?: Record<string, PropertyValue>;
+  /** Connect to a listening Minecraft VS Code debugger before running tests. */
+  debug?: { port?: number; timeoutMs?: number };
+  /** Capture native CPU profiles and diagnostics for the test run. */
+  profile?: boolean | { directory?: string };
+  /** Prepare instrumentation or command subscriptions after startup, before the test set begins. */
+  onServerReady?: (server: BdsServer, serverDir: string) => void | Promise<void>;
+
   /**
    * After the verdicts are in, keep the server running so a person can connect and look at the
    * test plots. The terminal is forwarded to the server console; `stop` or Ctrl+C ends it, and the
@@ -58,8 +80,9 @@ export interface RunOptions {
   /**
    * Called as soon as the verdicts are in, before the server is stopped. With `keepAlive` this is
    * where the summary is shown, so the person about to connect knows what they are looking at.
+   * Awaited while BDS remains alive so external capture processing can finish.
    */
-  onResult?: (result: RunResult) => void;
+  onResult?: (result: RunResult) => void | Promise<void>;
   onProgress?: (message: string) => void;
 }
 
@@ -69,6 +92,7 @@ export interface RunResult {
   logFile: string;
   durationMs: number;
   bdsVersion: string;
+  profile?: ScriptProfile;
 
   /** Failures that are not in `knownFailures` — the set that should turn a build red. */
   regressions: string[];
@@ -104,9 +128,22 @@ function definedOnly<T extends object>(source: T): Partial<T> {
 }
 
 export async function runGameTests(options: RunOptions): Promise<RunResult> {
+  const selection = testSelection(options);
+
+  options.signal?.throwIfAborted();
   const settings = { ...DEFAULTS, ...definedOnly(options) } as RunOptions & typeof DEFAULTS;
+
+  const selectedTests = options.tests ?? (options.test ? [options.test] : undefined);
+
+  if (selectedTests && options.expectRegistered === undefined) { settings.expectRegistered = selectedTests.length; }
+
   const onProgress = options.onProgress ?? ((): void => {});
   const started = Date.now();
+  const debugPort = settings.debug?.port ?? 19144;
+
+  if (settings.debug && (!Number.isSafeInteger(debugPort) || debugPort < 1 || debugPort > 65535)) { throw new Error('Debugger port must be an integer from 1 to 65535'); }
+
+  if (settings.debug?.timeoutMs !== undefined && (!Number.isFinite(settings.debug.timeoutMs) || settings.debug.timeoutMs <= 0)) { throw new Error('Debugger timeout must be positive'); }
 
   const packs = await discoverPacks(settings.packsDirs);
 
@@ -131,6 +168,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
   const version = bds.version;
 
   return withInstanceLock(instanceDirectory(bds.source === 'env' ? path.basename(bds.dir) : version, selected.instance), async () => {
+    options.signal?.throwIfAborted();
     const { serverDir, worldDir, created } = await provisionServer({
       cacheDir: bds.dir,
       version: bds.source === 'env' ? path.basename(bds.dir) : version,
@@ -139,13 +177,16 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
       port: settings.port,
       watchdogHangMs: settings.watchdogHangMs,
       lanVisible: settings.keepAlive && config.properties['enable-lan-visibility'] !== false,
-      properties: config.properties,
+      properties: { 'online-mode': settings.keepAlive === true, ...config.properties, ...settings.properties,
+        ...(settings.debug ? { 'allow-outbound-script-debugging': true } : {}),
+        ...(settings.profile ? { 'diagnostics-capture-max-files': 1000, 'diagnostics-capture-max-file-size': 33554432 } : {}),
+      },
       fresh: settings.fresh,
       onProgress,
     });
 
     const logInstance = selected.instance === undefined ? '' : `${selected.instance}-`;
-    const logFile = path.join(logsDir(), `${timestamp()}-${logInstance}${settings.tag.replace(/[^\w.-]+/g, '_')}.log`);
+    const logFile = path.join(logsDir(), `${timestamp()}-${logInstance}${selection.label.replace(/[^\w.-]+/g, '_')}.log`);
 
     // A world only exists after BDS has generated it, and experiments can only be set on a world that
     // exists. So the very first run on a new server tree is two boots: one to create the world, one to
@@ -153,12 +194,16 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
     if (created) {
       onProgress('first run for this server: generating the world');
       const bootstrap = new BdsServer({ serverDir, logFile: `${logFile}.bootstrap`, echo: settings.echo });
+      const detachAbort = stopOnAbort(options.signal, bootstrap);
 
       // Disposed whichever way the boot ends: a fatal line during generation must not leave the
       // server process behind, holding the port and the world.
       try {
+        options.signal?.throwIfAborted();
         await bootstrap.start();
+        options.signal?.throwIfAborted();
         await bootstrap.waitForReady();
+        options.signal?.throwIfAborted();
         await bootstrap.stop();
 
         const result = await enableBetaApis(worldDir, config.experiments);
@@ -173,6 +218,7 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
 
         throw error;
       } finally {
+        detachAbort();
         await bootstrap.dispose();
       }
     } else if (config.experiments?.length) {
@@ -199,10 +245,16 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
       logFile,
       echo: settings.echo,
     });
+    const detachAbort = stopOnAbort(options.signal, server);
+    let profiler: ScriptProfiler | undefined;
+    let profile: ScriptProfile | undefined;
 
     try {
+      options.signal?.throwIfAborted();
       await server.start();
+      options.signal?.throwIfAborted();
       await server.waitForReady();
+      options.signal?.throwIfAborted();
 
       // BDS prints the toggles it honoured. Checking the log rather than re-reading the NBT catches
       // the case where the file says one thing and the engine did another.
@@ -214,20 +266,66 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
       }
 
       server.send('gamerule sendcommandfeedback true');
+      // Keep the playerless world active while the debugger performs its protocol handshake.
+      server.send('tickingarea add 0 -64 0 128 120 128 bc_test true');
 
-      // Without a loaded ticking area a playerless world does not simulate, and every test that waits
-      // for anything to move times out. `true` preloads it so the first test does not race the load.
-      server.send(`tickingarea add 0 -64 0 128 120 128 bc_test true`);
-      onProgress(`running ${settings.tag}`);
-      server.send(`execute in overworld positioned ${settings.origin} run gametest runset ${settings.tag}`);
+      if (settings.debug) {
+        onProgress(`Minecraft debugger waiting for VS Code on localhost:${debugPort}; start minecraft-js in listen mode`);
+        await connectDebugger(server, debugPort, settings.debug.timeoutMs ?? 120000);
+      }
 
-      await waitForRun(server, settings.idleMs, settings.wallMs, settings.expectRegistered);
+      await settings.onServerReady?.(server, serverDir);
+
+      if (settings.profile) {
+        const directory = typeof settings.profile === 'object' ? settings.profile.directory : undefined;
+
+        profiler = new ScriptProfiler(server, serverDir, directory ?? path.join(logsDir(), 'profiles', path.basename(logFile, '.log')));
+        await profiler.start();
+      }
+
+      options.signal?.throwIfAborted();
+      const fragments: string[] = [];
+      const deadline = Date.now() + settings.wallMs;
+
+      if (selectedTests) {
+        for (const id of selectedTests) {
+          options.signal?.throwIfAborted();
+
+          if (Date.now() >= deadline) { break; }
+
+          server.send(`execute in overworld positioned ${settings.origin} run gametest clearall`);
+          const offset = server.transcript.length;
+
+          onProgress(`running ${id}`);
+          server.send(`execute in overworld positioned ${settings.origin} run gametest run ${id}`);
+          await waitForRun(server, settings.idleMs, Math.max(1, deadline - Date.now()), 1, offset);
+          fragments.push(server.transcript.slice(offset));
+
+          if (server.exited) { break; }
+        }
+      } else {
+        onProgress(`running ${selection.label}`);
+        server.send(`execute in overworld positioned ${settings.origin} run ${selection.command}`);
+        await waitForRun(server, settings.idleMs, settings.wallMs, settings.expectRegistered);
+      }
+
+      options.signal?.throwIfAborted();
+
+      if (profiler) {
+        const capture = profiler;
+
+        profiler = undefined;
+        profile = await capture.stop();
+        onProgress(`native captures: ${profile.directory}`);
+      }
 
       // The verdicts are fixed here, before anything a person does in the held-open world can add
       // to the transcript. Duration measures the tests, not how long someone spent looking at them.
-      const result = buildResult(server.transcript, settings, logFile, version, Date.now() - started);
+      const result = buildResult(server.transcript, settings, logFile, version, Date.now() - started, selectedTests ? summariseSelection(server.transcript, fragments, selectedTests) : undefined);
 
-      settings.onResult?.(result);
+      if (profile) { result.profile = profile; }
+
+      await settings.onResult?.(result);
 
       if (settings.keepAlive && !server.exited) {
         await holdForInspection(server, settings.port, onProgress);
@@ -235,6 +333,10 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
 
       return result;
     } finally {
+      detachAbort();
+
+      if (profiler) { await profiler.stop().catch(error => onProgress(`profiling cleanup: ${String(error)}`)); }
+
       await server.dispose();
 
       // The plots stay while someone is looking; once the server is down the world is wiped.
@@ -246,14 +348,25 @@ export async function runGameTests(options: RunOptions): Promise<RunResult> {
   });
 }
 
+function stopOnAbort(signal: AbortSignal | undefined, server: BdsServer): () => void {
+  const stop = (): void => { void server.stop(3000); };
+
+  signal?.addEventListener('abort', stop, { once: true });
+
+  if (signal?.aborted) { stop(); }
+
+  return () => signal?.removeEventListener('abort', stop);
+}
+
 function buildResult(
   transcript: string,
   settings: RunOptions & typeof DEFAULTS,
   logFile: string,
   bdsVersion: string,
   durationMs: number,
+  selectedSummary?: Summary,
 ): RunResult {
-  const summary = summarise(parseReport(transcript));
+  const summary = selectedSummary ?? summarise(parseReport(transcript));
   const knownFailures = settings.knownFailures ?? [];
   const regressions = summary.verdicts
     .filter(v => v.outcome !== 'pass' && !knownFailures.includes(v.id))
@@ -334,13 +447,14 @@ async function waitForRun(
   idleMs: number,
   wallMs: number,
   expectRegistered?: number,
+  offset = 0,
 ): Promise<void> {
   const deadline = Date.now() + wallMs;
 
   for (;;) {
     if (server.exited) { return; }
 
-    const report = parseReport(server.transcript);
+    const report = parseReport(server.transcript.slice(offset));
     const accounted = report.passed.length + report.failed.length;
     const expected = report.expected ?? expectRegistered;
 

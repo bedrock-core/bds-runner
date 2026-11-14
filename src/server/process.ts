@@ -220,6 +220,13 @@ export class BdsServer {
     this.#child.stdin.write(`${command}\n`);
   }
 
+  /** Observe server output until the returned subscription is released. */
+  onLine(listener: (line: string) => void): () => void {
+    this.#events.on('line', listener);
+
+    return () => { this.#events.off('line', listener); };
+  }
+
   /** Waits until the server has been quiet for `idleMs`, or `wallMs` elapses, or it exits. */
   async waitForQuiet(idleMs: number, wallMs: number): Promise<'quiet' | 'wall' | 'exit'> {
     const deadline = Date.now() + wallMs;
@@ -247,7 +254,11 @@ export class BdsServer {
       // Already gone; the kill path below is a no-op.
     }
 
-    const waitFor = async (ms: number): Promise<boolean> => Promise.race([exited.then(() => true), new Promise<boolean>(r => setTimeout(() => r(false), ms))]);
+    const waitFor = async (ms: number): Promise<boolean> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+
+      try { return await Promise.race([exited.then(() => true), new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); })]); } finally { clearTimeout(timer); }
+    };
 
     if (await waitFor(graceMs)) { return; }
 

@@ -9,7 +9,6 @@ export const MANAGED_PROPERTIES: ReadonlyMap<string, string> = new Map([
   ['server-port', '--port'],
   ['server-portv6', '--port'],
   ['allow-cheats', 'the runner; /gametest needs it'],
-  ['online-mode', 'the runner; no Xbox Live sign-in'],
 ]);
 
 export interface ServerPropertiesOptions {
@@ -56,6 +55,7 @@ export function renderServerProperties(options: ServerPropertiesOptions): string
 
     'default-player-permission-level': 'operator',
     'allow-list': false,
+    'online-mode': false,
 
     // Small world, few threads: the tests run in one plot and the rest is wasted simulation.
     'view-distance': 5,
@@ -83,7 +83,6 @@ export function renderServerProperties(options: ServerPropertiesOptions): string
     'server-port': port,
     'server-portv6': portV6,
     'allow-cheats': true,
-    'online-mode': false,
   };
 
   const merged: Record<string, PropertyValue> = { ...defaults, ...overrides, ...managed };

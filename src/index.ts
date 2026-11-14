@@ -42,6 +42,7 @@ export {
 export { formatSummary } from './report/summary';
 export { type RunOptions, type RunResult, runGameTests } from './run';
 export { BdsServer } from './server/process';
+export { ScriptProfiler, type ScriptProfile } from './server/profile';
 export { discoverPacks, type PackInfo, type PackVersion } from './server/packs';
 export { enableBetaApis } from './server/world';
 export { MANAGED_PROPERTIES, type PropertyValue, renderServerProperties } from './server/properties';

@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import {
   cacheDir,
   CONFIG_FILE,
@@ -21,6 +22,7 @@ import { resolveBds } from './bds/resolve';
 import { formatSummary } from './report/summary';
 import { runGameTests } from './run';
 import { writeConfigSchema } from './server/schema';
+import { testEvents } from './report/events';
 
 /**
  *   0  every test passed, or only known failures did
@@ -34,7 +36,8 @@ const EXIT = { ok: 0, testsFailed: 1, infrastructure: 2 };
 const USAGE = `
 bc-bds — run Minecraft GameTests on a Bedrock Dedicated Server
 
-  bc-bds run --packs <dir> --tag <tag> [options]
+  bc-bds run --packs <dir> (--tag <tag> | --test <class:name> | --tests-file <path> | --all) [options]
+  bc-bds capabilities          print supported IDE protocol features
   bc-bds optimize --packs <dir> --out <dir> [--mode <format> | --unpack]
   bc-bds fetch                 download and cache the server
   bc-bds where                 print the resolved server directory and version
@@ -48,7 +51,11 @@ Which server build (any command). Defaults to the newest stable build:
 Options for \`run\`:
   --packs <dir>                single pack or a folder of built packs; repeatable, so
                                several addons share one world            (required)
-  --tag <tag>                  gametest tag to run                       (required)
+  --tag <tag>                  gametest tag to run
+  --test <class:name>          run one registered GameTest
+  --tests-file <path>          JSON array of selected test identifiers
+  --all                        run the default native test set
+  --events                     stream versioned JSON events for IDE integrations
   --expect-registered <n>      fail unless the engine announces n tests
   --known-failure <id>         a test expected to fail; repeatable
   --allow-script-errors        report uncaught script errors without failing
@@ -60,6 +67,11 @@ Options for \`run\`:
   --keep-alive                 after the results, keep the server up so you can
                                join and look at the plots; \`stop\` or Ctrl+C ends it
   --offline                    never download; fail if the cache is cold
+  --profile                    capture native CPU profiles and diagnostics during tests
+  --profile-dir <dir>          directory for captures (implies --profile)
+  --debug                      wait for the Minecraft debugger before running tests
+  --debug-port <n>             VS Code listener TCP port (default 19144; implies --debug)
+  --debug-timeout <seconds>    time allowed for debugger attachment (default 120)
   --quiet                      do not echo server output
   --json <path>                also write the result as JSON
 
@@ -136,10 +148,21 @@ function versionOverride(args: Args): VersionOverride {
 
 async function commandRun(args: Args): Promise<number> {
   const packsDirs = args.values.get('packs') ?? [];
-  const tag = first(args, 'tag');
+  const tag = first(args, 'tag'), test = first(args, 'test'), all = args.flags.has('all'), file = first(args, 'tests-file');
+  let tests: string[] | undefined;
 
-  if (packsDirs.length === 0 || !tag) {
-    process.stderr.write('bc-bds run needs both --packs and --tag\n\n');
+  if (file) {
+    if ((await fs.stat(file)).size > 2 * 1024 * 1024) { throw new Error('The selected-test file exceeds 2 MiB'); }
+
+    const value: unknown = JSON.parse(await fs.readFile(file, 'utf8'));
+
+    if (!Array.isArray(value) || !value.every(id => typeof id === 'string')) { throw new Error('--tests-file requires a JSON array of test identifiers'); }
+
+    tests = value;
+  }
+
+  if (packsDirs.length === 0 || Number(tag !== undefined) + Number(test !== undefined) + Number(tests !== undefined) + Number(all) !== 1) {
+    process.stderr.write('bc-bds run needs --packs and exactly one of --tag, --test, --tests-file or --all\n\n');
     process.stderr.write(USAGE);
 
     return EXIT.infrastructure;
@@ -149,60 +172,116 @@ async function commandRun(args: Args): Promise<number> {
   const timeout = number(args, 'timeout');
   const bds = versionOverride(args);
   const knownFailures = args.values.get('known-failure') ?? [];
+  const events = args.flags.has('events'), abort = new AbortController();
 
-  const result = await runGameTests({
-    packsDirs,
-    tag,
-    bdsVersion: bds.version,
-    bdsChannel: bds.channel,
-    configPath: bds.configPath,
-    expectRegistered: number(args, 'expect-registered'),
-    knownFailures,
-    origin: first(args, 'origin'),
-    port: number(args, 'port'),
-    instance: first(args, 'instance'),
-    idleMs: idle === undefined ? undefined : idle * 1000,
-    wallMs: timeout === undefined ? undefined : timeout * 1000,
-    fresh: args.flags.has('fresh'),
-    offline: args.flags.has('offline'),
-    keepAlive: args.flags.has('keep-alive'),
-    allowScriptErrors: args.flags.has('allow-script-errors'),
-    echo: !args.flags.has('quiet'),
-    onProgress: message => process.stdout.write(`  ${message}\n`),
+  const emit = (value: Record<string, unknown>): void => { process.stdout.write(JSON.stringify({ schemaVersion: 1, ...value }) + '\n'); };
 
-    // Printed the moment the verdicts are in, so with --keep-alive the summary comes before the
-    // server is handed over rather than after it is finally stopped.
-    onResult: (r) => {
-      process.stdout.write('\n');
-      process.stdout.write(formatSummary({
-        summary: r.summary,
-        durationMs: r.durationMs,
-        bdsVersion: r.bdsVersion,
-        transcript: r.transcript,
-        knownFailures,
-      }));
-      process.stdout.write(`\n  log: ${r.logFile}\n\n`);
-    },
-  });
+  const cancel = (): void => abort.abort();
+  let controls: ReturnType<typeof createInterface> | undefined, release: (() => void) | undefined;
 
-  const jsonPath = first(args, 'json');
-
-  if (jsonPath) {
-    await fs.mkdir(path.dirname(path.resolve(jsonPath)), { recursive: true });
-    await fs.writeFile(jsonPath, `${JSON.stringify({
-      tag,
-      bdsVersion: result.bdsVersion,
-      durationMs: result.durationMs,
-      verdicts: result.summary.verdicts,
-      regressions: result.regressions,
-      scriptErrors: result.summary.scriptErrors,
-      infraError: result.summary.infraError,
-    }, null, 2)}\n`);
+  if (events) {
+    emit({ type: 'protocol', producer: '@bedrock-core/bds-runner', version: 1 });
+    controls = createInterface({ input: process.stdin });
+    controls.once('close', cancel);
+    controls.on('line', (line) => { try { if (JSON.parse(line).type === 'cancel') { cancel(); } } catch { /* Unknown control input is ignored. */ } });
+    process.once('SIGINT', cancel);
+    process.once('SIGTERM', cancel);
   }
 
-  if (result.summary.infraError) { return EXIT.infrastructure; }
+  try {
+    const result = await runGameTests({
+      packsDirs,
+      tag,
+      test,
+      tests,
+      all,
+      signal: abort.signal,
+      bdsVersion: bds.version,
+      bdsChannel: bds.channel,
+      configPath: bds.configPath,
+      expectRegistered: number(args, 'expect-registered'),
+      knownFailures,
+      origin: first(args, 'origin'),
+      port: number(args, 'port'),
+      instance: first(args, 'instance'),
+      idleMs: idle === undefined ? undefined : idle * 1000,
+      wallMs: timeout === undefined ? undefined : timeout * 1000,
+      fresh: args.flags.has('fresh'),
+      offline: args.flags.has('offline'),
+      keepAlive: args.flags.has('keep-alive'),
+      debug: args.flags.has('debug') || first(args, 'debug-port') !== undefined ? { port: number(args, 'debug-port'), timeoutMs: number(args, 'debug-timeout') === undefined ? undefined : number(args, 'debug-timeout')! * 1000 } : undefined,
+      profile: args.flags.has('profile') || first(args, 'profile-dir') !== undefined ? { directory: first(args, 'profile-dir') } : undefined,
+      allowScriptErrors: args.flags.has('allow-script-errors'),
+      echo: !events && !args.flags.has('quiet'),
+      onProgress: (message) => { if (events) { emit({ type: 'progress', message }); } else { process.stdout.write(`  ${message}\n`); } },
+      onServerReady: events
+        ? (server, directory): void => {
+            server.stopGracefullyOnSignal = true;
+            emit({ type: 'server.ready', directory });
 
-  return result.regressions.length > 0 ? EXIT.testsFailed : EXIT.ok;
+            for (const line of server.transcript.split(/\r?\n/).filter(Boolean)) { emit({ type: 'log', line }); }
+
+            release = server.onLine((line) => {
+              emit({ type: 'log', line });
+
+              for (const event of testEvents(line)) { emit({ ...event }); }
+            });
+          }
+        : undefined,
+
+      // Printed the moment the verdicts are in, so with --keep-alive the summary comes before the
+      // server is handed over rather than after it is finally stopped.
+      onResult: (r) => {
+        if (events) {
+          emit({ type: 'result', result: { summary: r.summary, logFile: r.logFile, durationMs: r.durationMs, bdsVersion: r.bdsVersion, profile: r.profile, regressions: r.regressions } });
+
+          return;
+        }
+
+        process.stdout.write('\n');
+        process.stdout.write(formatSummary({
+          summary: r.summary,
+          durationMs: r.durationMs,
+          bdsVersion: r.bdsVersion,
+          transcript: r.transcript,
+          knownFailures,
+        }));
+        process.stdout.write(`\n  log: ${r.logFile}\n\n`);
+      },
+    });
+
+    const jsonPath = first(args, 'json');
+
+    if (jsonPath) {
+      await fs.mkdir(path.dirname(path.resolve(jsonPath)), { recursive: true });
+      await fs.writeFile(jsonPath, `${JSON.stringify({
+        tag,
+        bdsVersion: result.bdsVersion,
+        durationMs: result.durationMs,
+        profile: result.profile,
+        verdicts: result.summary.verdicts,
+        regressions: result.regressions,
+        scriptErrors: result.summary.scriptErrors,
+        infraError: result.summary.infraError,
+      }, null, 2)}\n`);
+    }
+
+    if (result.summary.infraError) { return EXIT.infrastructure; }
+
+    return result.regressions.length > 0 ? EXIT.testsFailed : EXIT.ok;
+  } catch (error) {
+    if (abort.signal.aborted) {
+      if (events) { emit({ type: 'cancelled' }); }
+
+      return 130;
+    }
+
+    if (events) { emit({ type: 'error', message: error instanceof Error ? error.message : String(error) }); }
+
+    throw error;
+  } finally {
+    release?.(); controls?.off('close', cancel); controls?.close(); process.off('SIGINT', cancel); process.off('SIGTERM', cancel);
+  }
 }
 
 const KB = 1024;
@@ -365,6 +444,10 @@ export async function main(argv: string[]): Promise<number> {
   if (args.flags.has('instance')) { throw new Error('--instance requires a name.'); }
 
   switch (args.command) {
+    case 'capabilities':
+      process.stdout.write(JSON.stringify({ schemaVersion: 1, producer: '@bedrock-core/bds-runner', events: true, singleTest: true, selectedTests: true, cancellation: true }) + '\n');
+
+      return EXIT.ok;
     case 'run': return commandRun(args);
     case 'optimize': return commandOptimize(args);
     case 'fetch': return commandFetch(args);
