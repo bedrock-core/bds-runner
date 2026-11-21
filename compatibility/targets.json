@@ -21,7 +21,7 @@
       }
     },
     {
-      "gameVersion": "1.26.63.1",
+      "gameVersion": "1.26.66.1",
       "gameChannel": "stable",
       "vanillaData": "1.26.60",
       "gameTest": "1.0.0-beta.1.26.60-stable",
@@ -37,22 +37,22 @@
       }
     },
     {
-      "gameVersion": "1.26.70.23",
+      "gameVersion": "1.26.70.26",
       "gameChannel": "preview",
-      "vanillaData": "1.26.70-preview.23",
-      "gameTest": "1.0.0-beta.1.26.70-preview.23",
+      "vanillaData": "1.26.70-preview.26",
+      "gameTest": "1.0.0-beta.1.26.70-preview.26",
       "apis": {
         "stable": {
           "server": "2.11.0",
           "serverUi": "2.3.0"
         },
         "rc": {
-          "server": "2.12.0-rc.1.26.70-preview.23",
-          "serverUi": "2.4.0-rc.1.26.70-preview.23"
+          "server": "2.12.0-rc.1.26.70-preview.26",
+          "serverUi": "2.4.0-rc.1.26.70-preview.26"
         },
         "beta": {
-          "server": "2.13.0-beta.1.26.70-preview.23",
-          "serverUi": "2.5.0-beta.1.26.70-preview.23"
+          "server": "2.13.0-beta.1.26.70-preview.26",
+          "serverUi": "2.5.0-beta.1.26.70-preview.26"
         }
       }
     }
