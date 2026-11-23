@@ -47,7 +47,7 @@
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"build": "tsc -p tsconfig.json --noEmit",
 		"lint": "eslint .",
-		"test": "vitest run && node --test scripts/workspace-bds.test.mjs",
+		"test": "vitest run && node --test scripts/tests/workspace-bds.test.mjs",
 		"acceptance:optimize": "node scripts/optimizer-acceptance.mjs",
 		"coverage": "vitest run --coverage",
 		"fetch": "node bin/bc-bds.mjs fetch",

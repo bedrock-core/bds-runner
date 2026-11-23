@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import test from 'node:test';
-import { createPlan, applyPlan, linuxRules } from './workspace-bds.mjs';
+import { createPlan, applyPlan, linuxRules } from '../workspace-bds.mjs';
 
 async function workspace(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'bc-bds-setup-test-'));
