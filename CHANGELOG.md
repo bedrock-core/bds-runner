@@ -1,5 +1,15 @@
 # @bedrock-core/bds-runner
 
+## 0.3.1
+
+### Patch Changes
+
+- [`b6243c5`](https://github.com/bedrock-core/bds-runner/commit/b6243c50f3067e424e0d1e6f97f01e16ffc39bfd) Thanks [@drav0011](https://github.com/drav0011)! - Enable authenticated player connections for keep-alive inspection and allow online-mode configuration in server properties.
+
+- [`b6243c5`](https://github.com/bedrock-core/bds-runner/commit/b6243c50f3067e424e0d1e6f97f01e16ffc39bfd) Thanks [@drav0011](https://github.com/drav0011)! - Capture native CPU profiles and diagnostics during GameTests, support Minecraft debugger attachment before tests, and expose per-run server properties and instrumentation hooks.
+  
+  Await asynchronous result handlers while the server remains alive so debugger captures can finish before teardown.
+
 ## 0.3.0
 
 ### Minor Changes
