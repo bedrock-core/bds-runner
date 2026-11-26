@@ -56,7 +56,7 @@ __metadata:
     "@eslint/js": "npm:^10.0.1"
     "@stylistic/eslint-plugin": "npm:^5.10.0"
     "@types/node": "npm:^26.2.0"
-    "@types/yauzl": "npm:^2.10.3"
+    "@types/yauzl": "npm:^3.0.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     eslint: "npm:^10.5.0"
     jiti: "npm:^2.7.0"
@@ -718,12 +718,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/yauzl@npm:^2.10.3":
-  version: 2.10.3
-  resolution: "@types/yauzl@npm:2.10.3"
+"@types/yauzl@npm:^3.0.0":
+  version: 3.4.0
+  resolution: "@types/yauzl@npm:3.4.0"
   dependencies:
     "@types/node": "npm:*"
-  checksum: 10c0/f1b7c1b99fef9f2fe7f1985ef7426d0cebe48cd031f1780fcdc7451eec7e31ac97028f16f50121a59bcf53086a1fc8c856fd5b7d3e00970e43d92ae27d6b43dc
+  checksum: 10c0/9992cf7bf129466016baa4e99e05ad524afe2ff6e5d84e7408f2a7123bc4af3b4bfb639237308574b80e7e435571b6e1af6113910d166e8ea8b80da422ba8ecb
   languageName: node
   linkType: hard
 
