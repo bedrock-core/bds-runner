@@ -64,7 +64,7 @@
 	},
 	"devDependencies": {
 		"@changesets/changelog-github": "^0.7.0",
-		"@changesets/cli": "3.0.3",
+		"@changesets/cli": "3.1.0",
 		"@eslint/js": "^10.0.1",
 		"@stylistic/eslint-plugin": "^5.10.0",
 		"@types/node": "^26.2.0",
@@ -85,5 +85,5 @@
 		"url": "https://github.com/bedrock-core/bds-runner/issues"
 	},
 	"homepage": "https://github.com/bedrock-core/bds-runner#readme",
-	"packageManager": "yarn@4.18.0"
+	"packageManager": "yarn@4.19.0"
 }
